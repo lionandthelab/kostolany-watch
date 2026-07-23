@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "python .cursor/hooks/flag_ml_edit.py",
+        "timeout": 15
+      }
+    ],
+    "stop": [
+      {
+        "command": "python .cursor/hooks/stop_verify.py",
+        "timeout": 20,
+        "loop_limit": 2
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "python .cursor/hooks/gate_destructive_shell.py",
+        "timeout": 10
+      }
+    ]
+  }
+}

@@ -1,0 +1,143 @@
+"""FRED macro / liquidity / sentiment connectors (point-in-time aligned as published)."""
+
+from __future__ import annotations
+
+import io
+
+import httpx
+import numpy as np
+import pandas as pd
+
+from kostolany.connectors.cache import read_cache, write_cache
+from kostolany.settings import get_settings
+
+# Core series used as money / credit / fear proxies
+FRED_SERIES = {
+    "FEDFUNDS": "fed_funds",
+    "M2SL": "m2",
+    "T10Y2Y": "yield_curve",
+    "VIXCLS": "vix",
+    "BAA10Y": "credit_spread",
+}
+
+
+def _fetch_fred_series(series_id: str, api_key: str, start: str) -> pd.Series:
+    url = "https://api.stlouisfed.org/fred/series/observations"
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "observation_start": start,
+    }
+    with httpx.Client(timeout=get_settings().http_timeout) as client:
+        r = client.get(url, params=params)
+        r.raise_for_status()
+        obs = r.json().get("observations", [])
+    idx, vals = [], []
+    for row in obs:
+        v = row.get("value")
+        if v in (None, "."):
+            continue
+        idx.append(pd.Timestamp(row["date"]))
+        vals.append(float(v))
+    return pd.Series(vals, index=pd.DatetimeIndex(idx), name=series_id).sort_index()
+
+
+def _yahoo_proxy_panel(start: str) -> pd.DataFrame:
+    """Offline-friendly proxies when FRED key is absent."""
+    import yfinance as yf
+
+    tickers = {
+        "^VIX": "vix",
+        "^TNX": "tnx",  # 10Y yield
+        "^IRX": "irx",  # 13W bill ~ short rate
+    }
+    frames = {}
+    for t, name in tickers.items():
+        hist = yf.Ticker(t).history(start=start, auto_adjust=True)
+        if hist.empty:
+            continue
+        s = hist["Close"].astype(float)
+        s.index = pd.to_datetime(s.index).tz_localize(None)
+        frames[name] = s
+    if not frames:
+        raise ValueError("Yahoo macro proxies unavailable")
+    df = pd.DataFrame(frames).sort_index().ffill()
+    # Approximate FRED-style columns
+    out = pd.DataFrame(index=df.index)
+    out["vix"] = df.get("vix")
+    out["fed_funds"] = df.get("irx")
+    out["yield_curve"] = (df.get("tnx") - df.get("irx")).astype(float) if "tnx" in df and "irx" in df else np.nan
+    out["m2"] = np.nan  # no reliable free daily M2 via Yahoo
+    out["credit_spread"] = out["vix"] * 0.05  # crude stand-in
+    return out
+
+
+def fetch_fred_panel(start: str | None = None, *, use_cache: bool = True) -> pd.DataFrame:
+    """Return daily-ish panel of macro features (forward-filled from native frequencies)."""
+    settings = get_settings()
+    start = start or settings.data_start
+    cache_key = f"fred_panel_{start}"
+    if use_cache:
+        cached = read_cache(cache_key, max_age_hours=24)
+        if cached is not None and not cached.empty:
+            return cached
+
+    key = settings.fred_api_key
+    if key:
+        cols = {}
+        for sid, name in FRED_SERIES.items():
+            try:
+                cols[name] = _fetch_fred_series(sid, key, start)
+            except Exception:  # noqa: BLE001
+                continue
+        if not cols:
+            panel = _yahoo_proxy_panel(start)
+        else:
+            panel = pd.DataFrame(cols).sort_index()
+    else:
+        panel = _yahoo_proxy_panel(start)
+
+    # Resample to business day and ffill (publication lag not fully modeled — documented)
+    panel = panel.resample("B").ffill()
+    write_cache(cache_key, panel)
+    return panel
+
+
+def fred_to_extras(panel: pd.DataFrame) -> pd.DataFrame:
+    """Map FRED panel → feature extras expected by `build_features`."""
+    df = panel.copy()
+
+    def _z(s: pd.Series, w: int = 126) -> pd.Series:
+        mu = s.rolling(w, min_periods=20).mean()
+        sd = s.rolling(w, min_periods=20).std().replace(0, np.nan)
+        return ((s - mu) / sd).clip(-6, 6)
+
+    money = pd.Series(0.0, index=df.index)
+    if "fed_funds" in df:
+        money = money - _z(df["fed_funds"])  # falling rates → easier money
+    if "m2" in df and df["m2"].notna().sum() > 50:
+        money = money + _z(df["m2"].pct_change(60))
+    if "yield_curve" in df:
+        money = money + 0.5 * _z(df["yield_curve"])
+
+    credit = pd.Series(0.0, index=df.index)
+    if "credit_spread" in df:
+        credit = -_z(df["credit_spread"])
+    elif "vix" in df:
+        credit = -0.5 * _z(df["vix"])
+
+    sent = pd.Series(0.0, index=df.index)
+    if "vix" in df:
+        sent = -_z(df["vix"])  # high VIX → fear
+
+    return pd.DataFrame(
+        {
+            "money_proxy": money,
+            "credit_proxy": credit,
+            "sentiment_override": sent,
+            "vix": df["vix"] if "vix" in df else np.nan,
+            "fed_funds": df["fed_funds"] if "fed_funds" in df else np.nan,
+        },
+        index=df.index,
+    )

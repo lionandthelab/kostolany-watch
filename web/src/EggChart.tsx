@@ -1,0 +1,217 @@
+import {
+  CYCLE,
+  EGG,
+  REGIME_ANGLE,
+  REGIME_GUIDE,
+  pointOnRim,
+  rimFromProba,
+  type ModelId,
+  type RegimeCode,
+} from "./eggGeometry";
+
+export type ModelMark = {
+  id: ModelId;
+  label: string;
+  color: string;
+  probabilities: Record<string, number>;
+  confidence: number;
+};
+
+type Props = {
+  models: ModelMark[];
+  /** Highlight which model is “focus” for briefing — others still drawn */
+  focusId?: ModelId;
+  loading?: boolean;
+};
+
+function labelAnchor(angle: number): { dx: number; dy: number; anchor: "start" | "middle" | "end" } {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  if (c > 0.35) return { dx: 10, dy: 4, anchor: "start" };
+  if (c < -0.35) return { dx: -10, dy: 4, anchor: "end" };
+  if (s > 0.2) return { dx: 0, dy: -10, anchor: "middle" };
+  return { dx: 0, dy: 16, anchor: "middle" };
+}
+
+export function EggChart({ models, focusId, loading = false }: Props) {
+  const marks = models.map((m, i) => {
+    const rim = rimFromProba(m.probabilities);
+    const fan = (i - (models.length - 1) / 2) * 0.045;
+    const ang = rim.angle + fan;
+    const p = pointOnRim(ang);
+    return { ...m, ...rim, angle: ang, x: p.x, y: p.y };
+  });
+
+  return (
+    <svg
+      className={`egg-svg${loading ? " is-loading" : ""}`}
+      viewBox="0 0 400 480"
+      role="img"
+      aria-label={loading ? "AI 계산 중" : "Kostolany egg"}
+      aria-busy={loading}
+    >
+      <defs>
+        <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#f7f3ea" />
+          <stop offset="55%" stopColor="#e7efe4" />
+          <stop offset="100%" stopColor="#cfdccf" />
+        </linearGradient>
+        <radialGradient id="bloom" cx="50%" cy="42%" r="62%">
+          <stop offset="0%" stopColor="rgba(255,255,255,0.55)" />
+          <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+        </radialGradient>
+        <filter id="soft">
+          <feGaussianBlur stdDeviation="5" />
+        </filter>
+      </defs>
+
+      <ellipse
+        cx={EGG.cx}
+        cy={EGG.cy}
+        rx={EGG.rx + 10}
+        ry={EGG.ry + 12}
+        fill="url(#shell)"
+        stroke="rgba(30,61,53,0.22)"
+        strokeWidth="2"
+      />
+      <ellipse cx={EGG.cx} cy={EGG.cy} rx={EGG.rx + 10} ry={EGG.ry + 12} fill="url(#bloom)" />
+
+      <ellipse
+        cx={EGG.cx}
+        cy={EGG.cy}
+        rx={EGG.rx}
+        ry={EGG.ry}
+        fill="none"
+        stroke="rgba(30,61,53,0.22)"
+        strokeWidth="2"
+        strokeDasharray="6 8"
+      />
+
+      <g opacity={loading ? 0.28 : 1}>
+        {CYCLE.map((code) => {
+          const angle = REGIME_ANGLE[code];
+          const on = pointOnRim(angle);
+          const outer = pointOnRim(angle, EGG.labelRx, EGG.labelRy);
+          const guide = REGIME_GUIDE[code];
+          const la = labelAnchor(angle);
+          return (
+            <g key={code}>
+              <circle cx={on.x} cy={on.y} r="3.5" fill={guide.color} opacity="0.75" />
+              <line
+                x1={on.x}
+                y1={on.y}
+                x2={outer.x}
+                y2={outer.y}
+                stroke="rgba(26,31,28,0.18)"
+                strokeWidth="1"
+              />
+              <text
+                x={outer.x + la.dx}
+                y={outer.y + la.dy}
+                textAnchor={la.anchor}
+                fontSize="12"
+                fontFamily="Fraunces, Georgia, serif"
+                fontWeight="700"
+                fill={guide.color}
+              >
+                {code}
+              </text>
+              <text
+                x={outer.x + la.dx}
+                y={outer.y + la.dy + 14}
+                textAnchor={la.anchor}
+                fontSize="9.5"
+                fontFamily="IBM Plex Sans, sans-serif"
+                fill="rgba(26,31,28,0.5)"
+              >
+                {guide.name}
+              </text>
+            </g>
+          );
+        })}
+
+        {marks.map((m) => {
+          const focused = !focusId || focusId === m.id;
+          const r = 7 + m.confidence * 5;
+          return (
+            <g key={m.id} opacity={focused ? 1 : 0.55} className="model-pin">
+              <circle
+                className={focused ? "dot-pulse" : undefined}
+                cx={m.x}
+                cy={m.y}
+                r={r}
+                fill={m.color}
+                opacity="0.2"
+                filter="url(#soft)"
+              />
+              <circle cx={m.x} cy={m.y} r="7.5" fill={m.color} stroke="#fff" strokeWidth="2.5" />
+              <text
+                x={m.x}
+                y={m.y + 3.5}
+                textAnchor="middle"
+                fontSize="9"
+                fontWeight="700"
+                fontFamily="IBM Plex Sans, sans-serif"
+                fill="#fff"
+              >
+                {m.label.slice(0, 1)}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+
+      {loading && (
+        <g className="egg-ai-loading" aria-hidden="true">
+          <ellipse
+            cx={EGG.cx}
+            cy={EGG.cy}
+            rx={72}
+            ry={58}
+            fill="rgba(247, 243, 234, 0.72)"
+            stroke="rgba(47, 93, 80, 0.2)"
+            strokeWidth="1"
+          />
+          <circle className="egg-spin" cx={EGG.cx} cy={EGG.cy - 12} r="14" fill="none" stroke="#2f5d50" strokeWidth="2.5" strokeDasharray="22 40" />
+          <text
+            x={EGG.cx}
+            y={EGG.cy + 18}
+            textAnchor="middle"
+            fontFamily="Fraunces, Georgia, serif"
+            fontSize="15"
+            fontWeight="700"
+            fill="#1e3d35"
+          >
+            AI 계산 중
+          </text>
+          <text
+            x={EGG.cx}
+            y={EGG.cy + 36}
+            textAnchor="middle"
+            fontFamily="IBM Plex Sans, sans-serif"
+            fontSize="10"
+            fill="rgba(26,31,28,0.55)"
+          >
+            리듬이 · 눈치왕 · 파도꾼
+          </text>
+        </g>
+      )}
+    </svg>
+  );
+}
+
+/** Static decorative egg for landing (no live models). */
+export function LandingEgg() {
+  const demo: ModelMark[] = [
+    {
+      id: "hmm",
+      label: "리",
+      color: "#2f5d50",
+      probabilities: { A2: 0.55, A3: 0.2, A1: 0.1, B1: 0.05, B2: 0.05, B3: 0.05 },
+      confidence: 0.55,
+    },
+  ];
+  return <EggChart models={demo} focusId="hmm" />;
+}
+
+export type { RegimeCode };

@@ -1,0 +1,14 @@
+---
+description: Kostolany Watch core agent guardrails (leakage, regulation framing, verify-before-done)
+alwaysApply: true
+---
+
+# Kostolany core
+
+- Treat this as **regime recognition / education**, never personalized investment advice.
+- Keep `DISCLAIMER_KO` (or equivalent) on any user-facing snapshot/API/UI copy.
+- **Never** train on gold/planted/post-hoc labels. Eval-only.
+- Prefer extending `src/kostolany/harness/` over ad-hoc backtests that skip purge/embargo/lag.
+- Before claiming done: run `python scripts/agent_verify.py` (or skill `kostolany-verify`).
+- For multi-step buildouts, prefer project skills + ralph/ultrawork over one-shot coding.
+- Do not invent guaranteed returns, tip-room UX, or 1:1 trade instructions.

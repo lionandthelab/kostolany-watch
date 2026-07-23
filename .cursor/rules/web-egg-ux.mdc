@@ -1,0 +1,15 @@
+---
+description: Kostolany web UX — egg-first, no dashboard clutter
+globs: web/**/*.{tsx,ts,css,html}
+alwaysApply: false
+---
+
+# Web UX
+
+- Single page, one depth: `/` landing ↔ in-place watch (`#watch`). One CTA click enters watch.
+- Landing first viewport = brand **Kostolany Watch**, one headline, one sub line, CTA group, dominant egg.
+- Watch first viewport = brand, one line, asset/model controls (auto-fetch on change), dominant egg.
+- No cards in hero; no floating badges on the egg.
+- Keep disclaimer visible near actions/recommendations.
+- Preserve Fraunces + IBM Plex + moss palette unless redesigning intentionally.
+- API via Vite proxy `/api` → FastAPI (`kostolany serve` on :8000).

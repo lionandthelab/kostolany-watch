@@ -1,0 +1,22 @@
+---
+description: Leakage-safe ML rules for labels, harness, models, runner
+globs: src/kostolany/harness/**/*.py,src/kostolany/labels.py,src/kostolany/models.py,src/kostolany/engine.py,tests/test_harness.py
+alwaysApply: false
+---
+
+# Leakage & evaluation
+
+- `gold_labels` / planted truth: **scoring only**. Pass via `y_gold=` to runner, never into `fit_predict`.
+- CV: use `CombinatorialPurgedCV` or `PurgedWalkForward` — no random KFold on time series.
+- Backtests must keep `execution_lag >= 1` and realistic `cost_bps`.
+- If `LeakageAuditor` would fail (`GOLD_IN_TRAIN`, `ZERO_LAG`), do not ship the change.
+- New metrics belong in `harness/metrics.py` or `harness/backtest.py`, wired through `ExperimentRunner`.
+
+```python
+# ❌ BAD
+model.fit(X, y_gold)
+
+# ✅ GOOD
+model.fit(X, y_weak)
+report = evaluate_regimes(y_gold, pred, proba)  # eval only
+```

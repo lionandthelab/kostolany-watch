@@ -1,0 +1,12 @@
+.venv
+__pycache__
+*.pyc
+.git
+.cursor
+web/node_modules
+web/dist
+artifacts
+*.joblib
+.env
+firebase-debug.log
+.firebase
