@@ -109,9 +109,24 @@ class KostolanyHMM:
 class KostolanyGBM:
     """LightGBM classifier on weak labels with probability calibration."""
 
-    def __init__(self, calibrate: bool = True, random_state: int = 42) -> None:
+    def __init__(
+        self,
+        calibrate: bool = True,
+        random_state: int = 42,
+        *,
+        n_estimators: int = 400,
+        learning_rate: float = 0.03,
+        num_leaves: int = 47,
+        subsample: float = 0.8,
+        colsample_bytree: float = 0.8,
+    ) -> None:
         self.calibrate = calibrate
         self.random_state = random_state
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.num_leaves = num_leaves
+        self.subsample = subsample
+        self.colsample_bytree = colsample_bytree
         self.model_ = None
         self.le_ = LabelEncoder()
         self.columns_: list[str] = []
@@ -123,12 +138,12 @@ class KostolanyGBM:
         self.columns_ = [c for c in X.columns]
         y_enc = self.le_.fit_transform(df["y"].astype(int))
         base = lgb.LGBMClassifier(
-            n_estimators=200,
-            learning_rate=0.05,
+            n_estimators=self.n_estimators,
+            learning_rate=self.learning_rate,
             max_depth=-1,
-            num_leaves=31,
-            subsample=0.8,
-            colsample_bytree=0.8,
+            num_leaves=self.num_leaves,
+            subsample=self.subsample,
+            colsample_bytree=self.colsample_bytree,
             random_state=self.random_state,
             verbose=-1,
         )

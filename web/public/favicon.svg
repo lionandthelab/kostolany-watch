@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Kostolany Watch">
+  <defs>
+    <linearGradient id="shell" x1="18%" y1="8%" x2="82%" y2="92%">
+      <stop offset="0%" stop-color="#f4f0e6"/>
+      <stop offset="48%" stop-color="#e4ebe1"/>
+      <stop offset="100%" stop-color="#c5d4c6"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3d35"/>
+      <stop offset="100%" stop-color="#2f5d50"/>
+    </linearGradient>
+    <radialGradient id="bloom" cx="42%" cy="34%" r="55%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.55)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+  </defs>
+  <!-- soft ground disk -->
+  <circle cx="32" cy="32" r="30" fill="#e8efe6"/>
+  <!-- egg body -->
+  <ellipse cx="32" cy="33" rx="18" ry="24" fill="url(#shell)" stroke="url(#rim)" stroke-width="2.2"/>
+  <ellipse cx="32" cy="33" rx="18" ry="24" fill="url(#bloom)"/>
+  <!-- outer cycle path (Kostolany rim) -->
+  <ellipse
+    cx="32"
+    cy="33"
+    rx="18"
+    ry="24"
+    fill="none"
+    stroke="#2f5d50"
+    stroke-opacity="0.28"
+    stroke-width="1.2"
+    stroke-dasharray="3.5 2.5"
+  />
+  <!-- regime pin on rim (A2-ish upper-right) -->
+  <circle cx="46.5" cy="22.5" r="3.4" fill="#c45c3e" stroke="#1e3d35" stroke-width="1"/>
+  <circle cx="46.5" cy="22.5" r="1.2" fill="#f7f3ea"/>
+</svg>

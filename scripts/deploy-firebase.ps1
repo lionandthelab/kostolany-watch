@@ -44,7 +44,8 @@ gcloud run deploy $Service `
   --timeout 300 `
   --concurrency 10 `
   --max-instances 3 `
-  --min-instances 0 `
+  --min-instances 1 `
+  --no-cpu-throttling `
   --set-env-vars $envJoined `
   --project $ProjectId
 

@@ -118,17 +118,26 @@ def build_features(ohlcv: pd.DataFrame, extras: pd.DataFrame | None = None) -> p
             + 0.6 * _zscore(extras["sentiment_override"].reindex(df.index).ffill())
         ).clip(-8, 8)
 
-    # Money / liquidity proxies — prefer extras if provided, else derive
+    # Money / liquidity proxies — prefer extras if usable, else derive locally
+    local_money = (-_zscore(rv, 120)).clip(-8, 8)
     if extras is not None and "money_proxy" in extras.columns:
         money_proxy = extras["money_proxy"].reindex(df.index).ffill()
+        if float(money_proxy.notna().mean()) < 0.5:
+            money_proxy = local_money
+        else:
+            money_proxy = money_proxy.fillna(local_money)
     else:
-        # Falling short-rate proxy via inverse of accelerating returns variance
-        money_proxy = (-_zscore(rv, 120)).clip(-8, 8)
+        money_proxy = local_money
 
+    local_credit = (-_zscore(vol_of_vol.fillna(0), 60)).clip(-8, 8)
     if extras is not None and "credit_proxy" in extras.columns:
         credit_proxy = extras["credit_proxy"].reindex(df.index).ffill()
+        if float(credit_proxy.notna().mean()) < 0.5:
+            credit_proxy = local_credit
+        else:
+            credit_proxy = credit_proxy.fillna(local_credit)
     else:
-        credit_proxy = (-_zscore(vol_of_vol.fillna(0), 60)).clip(-8, 8)
+        credit_proxy = local_credit
 
     out = pd.DataFrame(
         {

@@ -64,6 +64,74 @@ function angularDistance(a: number, b: number) {
   return d;
 }
 
+/** Kostolany cycle is one-way: A1→A2→A3→B1→B2→B3→A1 */
+export function forwardCyclePath(from: RegimeCode, to: RegimeCode): RegimeCode[] {
+  const i0 = CYCLE.indexOf(from);
+  const i1 = CYCLE.indexOf(to);
+  if (i0 < 0 || i1 < 0) return [from, to];
+  if (i0 === i1) return [from];
+  const out: RegimeCode[] = [from];
+  let i = i0;
+  while (i !== i1) {
+    i = (i + 1) % CYCLE.length;
+    out.push(CYCLE[i]);
+  }
+  return out;
+}
+
+/** Angles increase CCW along our egg labeling — lerp that way between hops. */
+export function lerpAngleAlongRim(a0: number, a1: number, t: number): number {
+  let d = a1 - a0;
+  while (d < 0) d += Math.PI * 2;
+  while (d >= Math.PI * 2) d -= Math.PI * 2;
+  return a0 + d * t;
+}
+
+/**
+ * Sample rim angles from `from` → `to` along the cycle (not a chord through the egg).
+ * Multi-hop = skipped intermediate regimes → denser samples so motion looks like a fast pass.
+ */
+export function anglesAlongCycle(
+  from: RegimeCode,
+  to: RegimeCode,
+  stepsPerHop = 5,
+): { angles: number[]; path: RegimeCode[]; skipped: RegimeCode[] } {
+  const path = forwardCyclePath(from, to);
+  const skipped = path.length > 2 ? path.slice(1, -1) : [];
+  if (path.length <= 1) {
+    return { angles: [REGIME_ANGLE[to]], path, skipped };
+  }
+  const denser = skipped.length > 0 ? Math.max(stepsPerHop, 3) : Math.max(2, Math.floor(stepsPerHop / 2));
+  const angles: number[] = [];
+  for (let h = 0; h < path.length - 1; h++) {
+    const a0 = REGIME_ANGLE[path[h]];
+    const a1 = REGIME_ANGLE[path[h + 1]];
+    for (let s = 0; s < denser; s++) {
+      angles.push(lerpAngleAlongRim(a0, a1, s / denser));
+    }
+  }
+  angles.push(REGIME_ANGLE[to]);
+  return { angles, path, skipped };
+}
+
+/** Human-readable skip interpretation for UI. */
+export function cycleSkipNote(from: RegimeCode, to: RegimeCode): string | null {
+  const path = forwardCyclePath(from, to);
+  if (path.length <= 2) return null;
+  const skipped = path.slice(1, -1);
+  return `${from}→${to}: ${skipped.join("·")} 구간이 짧게 스킵된 것으로 해석합니다. 텔레포트가 아니라 사이클 동선을 빠르게 통과한 표현입니다.`;
+}
+
+/** Large rim jump or multi-hop cycle change → treat as path transit, not teleport. */
+export function needsCycleTransit(from: RegimeCode, to: RegimeCode, fromAngle: number, toAngle: number): boolean {
+  if (from === to) {
+    return angularDistance(fromAngle, toAngle) > (35 * Math.PI) / 180;
+  }
+  const path = forwardCyclePath(from, to);
+  if (path.length > 2) return true;
+  return angularDistance(fromAngle, toAngle) > (45 * Math.PI) / 180;
+}
+
 export const REGIME_GUIDE: Record<
   RegimeCode,
   { name: string; trait: string; volume: string; crowd: string; action: string; color: string }

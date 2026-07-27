@@ -77,7 +77,7 @@ def fetch_fred_panel(start: str | None = None, *, use_cache: bool = True) -> pd.
     """Return daily-ish panel of macro features (forward-filled from native frequencies)."""
     settings = get_settings()
     start = start or settings.data_start
-    cache_key = f"fred_panel_{start}"
+    cache_key = f"fred_panel_v2_{start}"
     if use_cache:
         cached = read_cache(cache_key, max_age_hours=24)
         if cached is not None and not cached.empty:
@@ -98,37 +98,38 @@ def fetch_fred_panel(start: str | None = None, *, use_cache: bool = True) -> pd.
     else:
         panel = _yahoo_proxy_panel(start)
 
-    # Resample to business day and ffill (publication lag not fully modeled — documented)
-    panel = panel.resample("B").ffill()
+    # Resample to business day then forward-fill monthly/irregular prints
+    panel = panel.resample("B").last().ffill()
     write_cache(cache_key, panel)
     return panel
 
 
 def fred_to_extras(panel: pd.DataFrame) -> pd.DataFrame:
     """Map FRED panel → feature extras expected by `build_features`."""
-    df = panel.copy()
+    df = panel.copy().ffill()
 
     def _z(s: pd.Series, w: int = 126) -> pd.Series:
+        s = s.ffill()
         mu = s.rolling(w, min_periods=20).mean()
         sd = s.rolling(w, min_periods=20).std().replace(0, np.nan)
-        return ((s - mu) / sd).clip(-6, 6)
+        return ((s - mu) / sd).clip(-6, 6).fillna(0.0)
 
     money = pd.Series(0.0, index=df.index)
-    if "fed_funds" in df:
+    if "fed_funds" in df and df["fed_funds"].notna().any():
         money = money - _z(df["fed_funds"])  # falling rates → easier money
     if "m2" in df and df["m2"].notna().sum() > 50:
-        money = money + _z(df["m2"].pct_change(60))
-    if "yield_curve" in df:
+        money = money + _z(df["m2"].pct_change(60).fillna(0))
+    if "yield_curve" in df and df["yield_curve"].notna().any():
         money = money + 0.5 * _z(df["yield_curve"])
 
     credit = pd.Series(0.0, index=df.index)
-    if "credit_spread" in df:
+    if "credit_spread" in df and df["credit_spread"].notna().any():
         credit = -_z(df["credit_spread"])
-    elif "vix" in df:
+    elif "vix" in df and df["vix"].notna().any():
         credit = -0.5 * _z(df["vix"])
 
     sent = pd.Series(0.0, index=df.index)
-    if "vix" in df:
+    if "vix" in df and df["vix"].notna().any():
         sent = -_z(df["vix"])  # high VIX → fear
 
     return pd.DataFrame(

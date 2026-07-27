@@ -3,9 +3,11 @@ import { CYCLE, REGIME_GUIDE, TOP_MODELS } from "./eggGeometry";
 
 type Props = {
   onEnter: () => void;
+  onNews?: () => void;
+  onFlows?: () => void;
 };
 
-export default function Landing({ onEnter }: Props) {
+export default function Landing({ onEnter, onNews, onFlows }: Props) {
   return (
     <div className="landing">
       <section className="landing-hero">
@@ -20,6 +22,16 @@ export default function Landing({ onEnter }: Props) {
             <button type="button" className="btn-primary" onClick={onEnter}>
               서비스 들어가기
             </button>
+            {onNews && (
+              <button type="button" className="btn-ghost" onClick={onNews}>
+                거시 뉴스 데스크
+              </button>
+            )}
+            {onFlows && (
+              <button type="button" className="btn-ghost" onClick={onFlows}>
+                섹터 흐름
+              </button>
+            )}
             <a href="#about" className="btn-ghost">
               어떻게 보나요
             </a>

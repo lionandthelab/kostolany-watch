@@ -196,11 +196,24 @@ def build_tsfm():
 
 
 class TSFMEnsemble:
-    """v3 ensemble: 0.4 HMM + 0.35 GBM + 0.25 TSFM trajectory prior."""
+    """v3 ensemble: weighted HMM + GBM + TSFM trajectory prior."""
 
-    def __init__(self) -> None:
-        self.hmm = KostolanyHMM()
-        self.gbm = KostolanyGBM()
+    def __init__(
+        self,
+        *,
+        w_hmm: float = 0.30,
+        w_gbm: float = 0.45,
+        w_tsfm: float = 0.25,
+        transition_soften: float = 0.15,
+        gbm_kwargs: dict | None = None,
+        hmm_kwargs: dict | None = None,
+    ) -> None:
+        self.w_hmm = w_hmm
+        self.w_gbm = w_gbm
+        self.w_tsfm = w_tsfm
+        self.transition_soften = transition_soften
+        self.hmm = KostolanyHMM(**(hmm_kwargs or {}))
+        self.gbm = KostolanyGBM(**(gbm_kwargs or {}))
         self.tsfm = build_tsfm()
         self.last_traj_: TrajectoryForecast | None = None
 
@@ -219,10 +232,15 @@ class TSFMEnsemble:
         self.last_traj_ = traj
         c = self.tsfm.regime_proba_from_trajectory(traj)
         common = a.proba.index.intersection(b.proba.index).intersection(c.index)
-        proba = 0.40 * a.proba.loc[common] + 0.35 * b.proba.loc[common] + 0.25 * c.loc[common]
+        proba = (
+            self.w_hmm * a.proba.loc[common]
+            + self.w_gbm * b.proba.loc[common]
+            + self.w_tsfm * c.loc[common]
+        )
         # Boost uncertainty near high transition score
         t = traj.transition_score.reindex(common).fillna(0.0)
-        blend = proba.mul(1.0 - 0.25 * t, axis=0).add((0.25 * t / 6.0), axis=0)
+        soft = self.transition_soften
+        blend = proba.mul(1.0 - soft * t, axis=0).add((soft * t / 6.0), axis=0)
         blend = blend.div(blend.sum(axis=1), axis=0)
         regimes = blend.idxmax(axis=1).map(lambda col: int(col[1:])).rename("regime")
         return RegimePrediction(

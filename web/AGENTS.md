@@ -10,7 +10,11 @@ Egg-first Vite/React UI. Proxies `/api` to FastAPI.
 | View | How |
 |---|---|
 | Landing | `/` |
-| Watch | same page via CTA → `#watch` (no route stack) |
+| Watch | `#watch` |
+| News desk | `#news` |
+| Sector flows | `#flows` |
+
+Top desk tabs: 국면 ↔ 뉴스 ↔ 흐름 (same app shell).
 
 ## For agents
 

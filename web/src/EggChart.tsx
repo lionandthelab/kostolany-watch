@@ -15,13 +15,18 @@ export type ModelMark = {
   color: string;
   probabilities: Record<string, number>;
   confidence: number;
+  /** When set, pin sits on this rim angle (cycle transit animation). */
+  angleOverride?: number;
 };
 
 type Props = {
   models: ModelMark[];
   /** Highlight which model is “focus” for briefing — others still drawn */
   focusId?: ModelId;
+  /** Full-block spinner only when nothing is ready yet */
   loading?: boolean;
+  /** Soft status while remaining models compute */
+  pendingLabel?: string | null;
 };
 
 function labelAnchor(angle: number): { dx: number; dy: number; anchor: "start" | "middle" | "end" } {
@@ -33,22 +38,23 @@ function labelAnchor(angle: number): { dx: number; dy: number; anchor: "start" |
   return { dx: 0, dy: 16, anchor: "middle" };
 }
 
-export function EggChart({ models, focusId, loading = false }: Props) {
+export function EggChart({ models, focusId, loading = false, pendingLabel = null }: Props) {
   const marks = models.map((m, i) => {
     const rim = rimFromProba(m.probabilities);
     const fan = (i - (models.length - 1) / 2) * 0.045;
-    const ang = rim.angle + fan;
+    const ang = (m.angleOverride ?? rim.angle) + fan;
     const p = pointOnRim(ang);
     return { ...m, ...rim, angle: ang, x: p.x, y: p.y };
   });
+  const block = loading && marks.length === 0;
 
   return (
     <svg
-      className={`egg-svg${loading ? " is-loading" : ""}`}
+      className={`egg-svg${block ? " is-loading" : ""}`}
       viewBox="0 0 400 480"
       role="img"
-      aria-label={loading ? "AI 계산 중" : "Kostolany egg"}
-      aria-busy={loading}
+      aria-label={block ? "AI 계산 중" : pendingLabel ? `일부 계산 중: ${pendingLabel}` : "Kostolany egg"}
+      aria-busy={block || Boolean(pendingLabel)}
     >
       <defs>
         <linearGradient id="shell" x1="0" y1="0" x2="1" y2="1">
@@ -161,7 +167,7 @@ export function EggChart({ models, focusId, loading = false }: Props) {
         })}
       </g>
 
-      {loading && (
+      {block && (
         <g className="egg-ai-loading" aria-hidden="true">
           <ellipse
             cx={EGG.cx}
@@ -195,6 +201,18 @@ export function EggChart({ models, focusId, loading = false }: Props) {
             리듬이 · 눈치왕 · 파도꾼
           </text>
         </g>
+      )}
+      {!block && pendingLabel && (
+        <text
+          x={EGG.cx}
+          y={22}
+          textAnchor="middle"
+          fontFamily="IBM Plex Sans, sans-serif"
+          fontSize="11"
+          fill="rgba(26,31,28,0.55)"
+        >
+          {pendingLabel}
+        </text>
       )}
     </svg>
   );

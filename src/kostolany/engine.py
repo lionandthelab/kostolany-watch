@@ -61,6 +61,11 @@ class KostolanyEngine:
     def fit_market(self, market: MarketData) -> "KostolanyEngine":
         feats = build_features(market.ohlcv, market.extras)
         X = model_matrix(feats).dropna()
+        if len(X) < 50:
+            raise ValueError(
+                f"Not enough clean feature rows for {market.symbol}: {len(X)} "
+                "(check FRED/extra merges for all-NaN columns)"
+            )
         y = weak_labels(feats).reindex(X.index)
         self.model = self._make_model()
         self.model.fit(X, y)
