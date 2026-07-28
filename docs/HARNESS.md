@@ -5,6 +5,12 @@
 
 Kostolany Watch의 핵심 차별점은 모델 자체보다 **정직한 평가 하네스**다.
 
+3개월 경로·국면 하이퍼파라미터 고도화 실험 결과(2026-07-27): [`FORECAST_TUNE_EXPERIMENT_2026-07-27.md`](./FORECAST_TUNE_EXPERIMENT_2026-07-27.md).  
+상용화 레인 commercial-v5 (2026-07-28): [`COMMERCIAL_MODEL_V5_2026-07-28.md`](./COMMERCIAL_MODEL_V5_2026-07-28.md).
+
+직접 다중지평·다시장 commercial-v4 R&D 결과(2026-07-28):
+[`COMMERCIAL_V4_RND_2026-07-28.md`](./COMMERCIAL_V4_RND_2026-07-28.md).
+
 ## 설계 원칙
 
 1. **Gold / planted labels는 평가 전용** — `gold_used_in_training=True`면 leakage auditor가 즉시 FAIL.
@@ -25,6 +31,8 @@ Kostolany Watch의 핵심 차별점은 모델 자체보다 **정직한 평가 �
 | `harness/metrics.py` | 분류·전환·calibration + egg 좌표 |
 | `harness/backtest.py` | regime→position 맵 + lag + cost_bps |
 | `harness/runner.py` | walk-forward/CPCV 실험 러너, artifact JSON |
+| `harness/commercial_eval.py` | 3시장 direct-v4 승격 gate |
+| `harness/pooled_forecast.py` | cross-asset 63d head (equity Flows 승격 / `pooled_serve`) |
 
 ## 최소 사용 예
 

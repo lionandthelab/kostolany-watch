@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 from typing import Any, Literal
 
 import joblib
@@ -21,6 +22,7 @@ from kostolany.tsfm import TSFMEnsemble
 
 
 ModelKind = Literal["hmm", "gbm", "ensemble", "tsfm", "ensemble_v3"]
+MODEL_FIT_LOCK = RLock()
 
 
 @dataclass
@@ -59,20 +61,23 @@ class KostolanyEngine:
         return EnsembleEngine()
 
     def fit_market(self, market: MarketData) -> "KostolanyEngine":
-        feats = build_features(market.ohlcv, market.extras)
-        X = model_matrix(feats).dropna()
-        if len(X) < 50:
-            raise ValueError(
-                f"Not enough clean feature rows for {market.symbol}: {len(X)} "
-                "(check FRED/extra merges for all-NaN columns)"
-            )
-        y = weak_labels(feats).reindex(X.index)
-        self.model = self._make_model()
-        self.model.fit(X, y)
-        self.symbol = market.symbol
-        self._last_features = feats
-        self._last_ohlcv = market.ohlcv
-        self._last_pred = self.model.predict(X)
+        # Cloud Run may schedule watch and flows workers concurrently. Serialize
+        # CPU-heavy fits inside one process while priority queues decide order.
+        with MODEL_FIT_LOCK:
+            feats = build_features(market.ohlcv, market.extras)
+            X = model_matrix(feats).dropna()
+            if len(X) < 50:
+                raise ValueError(
+                    f"Not enough clean feature rows for {market.symbol}: {len(X)} "
+                    "(check FRED/extra merges for all-NaN columns)"
+                )
+            y = weak_labels(feats).reindex(X.index)
+            self.model = self._make_model()
+            self.model.fit(X, y)
+            self.symbol = market.symbol
+            self._last_features = feats
+            self._last_ohlcv = market.ohlcv
+            self._last_pred = self.model.predict(X)
         return self
 
     def fit_symbol(self, symbol: str, start: str = "2010-01-01", *, enrich_fred: bool = True) -> "KostolanyEngine":
@@ -196,6 +201,55 @@ class KostolanyEngine:
         eng._last_ohlcv = blob["ohlcv"]
         eng._last_pred = blob["pred"]
         return eng
+
+
+def fit_analyst_bundle(
+    symbol: str,
+    start: str = "2010-01-01",
+    *,
+    enrich_fred: bool = True,
+) -> dict[str, KostolanyEngine]:
+    """Fit HMM, GBM and direct TSFM views from one shared market/model pass.
+
+    ``TSFMEnsemble`` already owns fitted HMM and GBM arms. Reusing those arms
+    removes two duplicate data downloads, feature builds and model fits while
+    preserving each analyst's independent posterior/replay.
+    """
+    if symbol.upper() in {"SYNTH", "SYNTHETIC"}:
+        market, _ = make_synthetic(n=2000, seed=42)
+    else:
+        market = load_market(symbol, start=start, enrich_fred=enrich_fred)
+
+    master = KostolanyEngine(model_kind="tsfm").fit_market(market)
+    if not isinstance(master.model, TSFMEnsemble):
+        raise RuntimeError("Expected TSFMEnsemble master model")
+    if master._last_features is None or master._last_ohlcv is None:
+        raise RuntimeError("Master engine missing fitted data")
+
+    X = model_matrix(master._last_features).dropna()
+    predictions = {
+        "hmm": master.model.hmm.predict(X),
+        "gbm": master.model.gbm.predict(X),
+        "tsfm": master._last_pred,
+    }
+    models = {
+        "hmm": master.model.hmm,
+        "gbm": master.model.gbm,
+        "tsfm": master.model,
+    }
+    out: dict[str, KostolanyEngine] = {}
+    for kind in ("hmm", "gbm", "tsfm"):
+        pred = predictions[kind]
+        if pred is None:
+            raise RuntimeError(f"Missing prediction for {kind}")
+        view = KostolanyEngine(model_kind=kind)  # type: ignore[arg-type]
+        view.model = models[kind]
+        view.symbol = market.symbol
+        view._last_features = master._last_features
+        view._last_ohlcv = master._last_ohlcv
+        view._last_pred = pred
+        out[kind] = view
+    return out
 
 
 def prepare_xy(market: MarketData) -> tuple[pd.DataFrame, pd.Series, pd.Series, pd.Series]:

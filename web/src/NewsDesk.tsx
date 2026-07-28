@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchNews, type NewsDesk } from "./api";
+import { fetchNews, type NewsDesk, type NewsTone } from "./api";
 import MarkdownBrief from "./MarkdownBrief";
 
 const THEME_COLOR: Record<string, string> = {
@@ -24,6 +24,33 @@ function formatKst(iso?: string | null): string {
   }
 }
 
+function ToneMeter({ tone, color }: { tone: NewsTone; color: string }) {
+  // score -1..1 → 0..100%
+  const pct = ((tone.score + 1) / 2) * 100;
+  return (
+    <div className="news-tone" aria-label={`감성 ${tone.label}`}>
+      <div className="news-tone-meta">
+        <span className="news-tone-label">{tone.label}</span>
+        <span className="news-tone-score">
+          {tone.score > 0 ? "+" : ""}
+          {(tone.score * 100).toFixed(0)}
+        </span>
+      </div>
+      <div className="news-tone-track">
+        <span className="news-tone-mid" />
+        <span
+          className="news-tone-thumb"
+          style={{ left: `${pct}%`, background: color }}
+        />
+      </div>
+      <div className="news-tone-ends">
+        <span>경계</span>
+        <span>완화</span>
+      </div>
+    </div>
+  );
+}
+
 type Props = {
   onBack?: () => void;
   onWatch?: () => void;
@@ -43,7 +70,6 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
       const data = await fetchNews(refresh);
       setDesk(data);
       if (data.refreshing || data.stale) {
-        // soft poll until brief settles
         window.setTimeout(() => {
           void fetchNews(false).then(setDesk).catch(() => undefined);
         }, 4000);
@@ -90,12 +116,8 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
             {loading
               ? desk
                 ? "갱신 중…"
-                : "수집 중…"
-              : desk?.refreshing
-                ? `백그라운드 갱신 · ${formatKst(desk.asof)}`
-                : desk?.cached
-                  ? `캐시 · ${formatKst(desk.asof)}`
-                  : `갱신 · ${formatKst(desk?.asof)}`}
+                : "불러오는 중…"
+              : formatKst(desk?.asof) || ""}
           </span>
           <button
             type="button"
@@ -146,37 +168,44 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
             ))}
           </div>
 
-          {sections.map((sec) => (
-            <section key={sec.theme} className="news-section fade-up">
-              <h2 className="news-section-title" style={{ color: THEME_COLOR[sec.theme] }}>
-                {sec.label_ko}
-              </h2>
-              {sec.items.length === 0 ? (
-                <p className="status">헤드라인 없음</p>
-              ) : (
-                <ul className="news-list">
-                  {sec.items.map((it) => (
-                    <li key={it.id}>
-                      <a
-                        className="news-row"
-                        href={it.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <span className="news-row-meta">
-                          <span className="news-row-source">{it.source}</span>
-                          {it.published_at && (
-                            <time dateTime={it.published_at}>{formatKst(it.published_at)}</time>
-                          )}
-                        </span>
-                        <span className="news-row-title">{it.title}</span>
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
+          {sections.map((sec) => {
+            const color = THEME_COLOR[sec.theme] ?? "#2f5d50";
+            return (
+              <section key={sec.theme} className="news-section fade-up">
+                <div className="news-section-head">
+                  <h2 className="news-section-title" style={{ color }}>
+                    {sec.label_ko}
+                  </h2>
+                  {sec.tone && <ToneMeter tone={sec.tone} color={color} />}
+                </div>
+                {sec.summary_ko && <p className="news-section-summary">{sec.summary_ko}</p>}
+                {sec.items.length === 0 ? (
+                  <p className="status">헤드라인 없음</p>
+                ) : (
+                  <ul className="news-list">
+                    {sec.items.map((it) => (
+                      <li key={it.id}>
+                        <a
+                          className="news-row"
+                          href={it.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <span className="news-row-meta">
+                            <span className="news-row-source">{it.source}</span>
+                            {it.published_at && (
+                              <time dateTime={it.published_at}>{formatKst(it.published_at)}</time>
+                            )}
+                          </span>
+                          <span className="news-row-title">{it.title}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
 
           <section className="news-desk-links fade-up">
             <h2 className="news-section-title">공식 데스크</h2>

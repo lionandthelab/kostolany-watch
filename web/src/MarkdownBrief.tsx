@@ -54,8 +54,8 @@ function inline(text: string): ReactNode[] {
       const lm = tok.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       if (lm) {
         nodes.push(
-          <a key={key++} href={lm[2]} target="_blank" rel="noopener noreferrer">
-            {lm[1]}
+          <a key={key++} href={lm[2]} target="_blank" rel="noopener noreferrer" title={lm[1]}>
+            {linkLabel(lm[1], lm[2])}
           </a>,
         );
       } else {
@@ -66,4 +66,23 @@ function inline(text: string): ReactNode[] {
   }
   if (last < text.length) nodes.push(text.slice(last));
   return nodes;
+}
+
+/** Never paint raw Google News / http URLs as link text (layout overflow). */
+function linkLabel(text: string, href: string): string {
+  const t = text.trim();
+  const looksUrl =
+    /^https?:\/\//i.test(t) ||
+    t.includes("news.google.com/rss/articles") ||
+    t.includes("news.google.com/articles") ||
+    t.length > 96;
+  if (!looksUrl) return t;
+  try {
+    const u = new URL(href || t);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host && !host.includes("news.google")) return host;
+  } catch {
+    /* fall through */
+  }
+  return "기사 보기";
 }

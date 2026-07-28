@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from kostolany.settings import get_settings
+from kostolany import blob_cache
 
 WATCH_TTL_HOURS = 6.0
 REFRESH_COOLDOWN_HOURS = 1.0
@@ -18,6 +19,13 @@ def _path(symbol: str, models: str, limit: int, stride: int) -> Path:
     safe_models = "".join(c if c.isalnum() or c in ",-_." else "_" for c in models)
     name = f"watch_{safe_sym}_{safe_models}_L{limit}_S{stride}.json"
     return get_settings().cache_path / name
+
+
+def _symbol_refresh_path(symbol: str) -> Path:
+    safe_sym = "".join(
+        c if c.isalnum() or c in "-_." else "_" for c in symbol.upper()
+    )
+    return get_settings().cache_path / f"watch_{safe_sym}_refresh.json"
 
 
 def _iso(ts: float | None) -> str | None:
@@ -38,6 +46,7 @@ def read_watch_cache(
     allow_stale: bool = False,
 ) -> dict[str, Any] | None:
     path = _path(symbol, models, limit, stride)
+    blob_cache.pull_if_missing(path)
     if not path.exists():
         return None
     try:
@@ -91,6 +100,7 @@ def write_watch_cache(
         "body": body,
     }
     path.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    blob_cache.push_async(path)
     out = dict(body)
     out["cached"] = False
     out["cached_at"] = _iso(now)
@@ -124,6 +134,9 @@ def mark_refresh_started(
         "body": body,
     }
     path.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    from kostolany import blob_cache
+
+    blob_cache.push_async(path)
     refresh_ready = now + REFRESH_COOLDOWN_HOURS * 3600.0
     return {
         "can_refresh": False,
@@ -148,6 +161,33 @@ def refresh_cooldown_remaining(
         return 0.0
     last_refresh = float(payload.get("last_refresh_epoch", 0))
     if last_refresh <= 0:
+        return 0.0
+    ready = last_refresh + REFRESH_COOLDOWN_HOURS * 3600.0
+    return max(0.0, ready - time.time())
+
+
+def mark_symbol_refresh_started(symbol: str) -> None:
+    """Persist a symbol-wide cooldown so cache-shape variation cannot bypass it."""
+    path = _symbol_refresh_path(symbol)
+    path.write_text(
+        json.dumps({"last_refresh_epoch": time.time()}),
+        encoding="utf-8",
+    )
+    blob_cache.push_async(path)
+
+
+def symbol_refresh_cooldown_remaining(symbol: str) -> float:
+    path = _symbol_refresh_path(symbol)
+    blob_cache.pull_if_missing(path)
+    if not path.exists():
+        return 0.0
+    try:
+        last_refresh = float(
+            json.loads(path.read_text(encoding="utf-8")).get(
+                "last_refresh_epoch", 0.0
+            )
+        )
+    except Exception:  # noqa: BLE001
         return 0.0
     ready = last_refresh + REFRESH_COOLDOWN_HOURS * 3600.0
     return max(0.0, ready - time.time())

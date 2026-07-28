@@ -12,6 +12,8 @@ web/node_modules/
 web/.next/
 web/out/
 web/dist/
+web/tsconfig.tsbuildinfo
+.omc/
 .env
 *.joblib
 .coverage

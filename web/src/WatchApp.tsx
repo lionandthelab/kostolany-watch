@@ -11,6 +11,7 @@ import {
   type RegimeCode,
 } from "./eggGeometry";
 import {
+  ensureWatchMarket,
   fetchWatch,
   peekWatch,
   startWatchWarmup,
@@ -99,6 +100,7 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
 
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
+      window.clearTimeout(pollRef.current);
       window.clearInterval(pollRef.current);
       pollRef.current = null;
     }
@@ -109,20 +111,39 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
       stopPoll();
       setRefreshing(true);
       let ticks = 0;
-      pollRef.current = window.setInterval(() => {
+      let delay = 4000;
+      const tick = () => {
         ticks += 1;
         void peekWatch(sym, MODEL_IDS, 360).then((next) => {
-          if (next.status !== "hit") return;
-          const data = next.data;
-          const newer = Boolean(data.cached_at && data.cached_at !== prevCachedAt);
-          const done = !data.refreshing && (!data.stale || newer);
-          if (newer || done) applyBundle(data);
-          if (done || ticks >= 48) {
+          if (next.status === "busy") {
+            delay = Math.min(30000, Math.round(delay * 1.5));
+            if (ticks < 30) pollRef.current = window.setTimeout(tick, delay);
+            else {
+              setRefreshing(false);
+              stopPoll();
+            }
+            return;
+          }
+          if (next.status === "hit") {
+            const data = next.data;
+            const newer = Boolean(data.cached_at && data.cached_at !== prevCachedAt);
+            const done = !data.refreshing && (!data.stale || newer);
+            if (newer || done) applyBundle(data);
+            if (done || ticks >= 30) {
+              setRefreshing(false);
+              stopPoll();
+              return;
+            }
+            delay = 4000;
+          }
+          if (ticks < 30) pollRef.current = window.setTimeout(tick, delay);
+          else {
             setRefreshing(false);
             stopPoll();
           }
         });
-      }, 2500);
+      };
+      pollRef.current = window.setTimeout(tick, delay);
     },
     [applyBundle, stopPoll],
   );
@@ -153,23 +174,16 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
               setRefreshing(false);
               stopPoll();
             }
-            // Soft refresh in background — do not block / stampede the API
-            void fetchWatch(sym, MODEL_IDS, 360, false)
-              .then((data) => {
-                if (gen !== loadGen.current) return;
-                applyBundle(data);
-                if (data.refreshing || data.stale) pollFresh(sym, data.cached_at);
-              })
-              .catch(() => undefined);
+            // No automatic soft fetchWatch — that stampedes Cloud Run under warmup
             return;
           }
 
-          // busy or miss: poll peeks; only kick warmup on confirmed miss
-          if (peeked.status === "miss") {
-            void startWatchWarmup(false).catch(() => undefined);
+          if (peeked.status === "miss" || peeked.status === "busy") {
+            void ensureWatchMarket(sym).catch(() => undefined);
           }
-          for (let i = 0; i < 36; i++) {
-            await new Promise((r) => setTimeout(r, peeked.status === "busy" ? 4000 : 2500));
+          let delay = peeked.status === "busy" ? 5000 : 2500;
+          for (let i = 0; i < 40; i++) {
+            await new Promise((r) => setTimeout(r, delay));
             if (gen !== loadGen.current) return;
             const again = await peekWatch(sym, MODEL_IDS, 360);
             if (again.status === "hit") {
@@ -182,10 +196,17 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
               }
               return;
             }
-            if (again.status === "miss" && i === 2) {
-              void startWatchWarmup(false).catch(() => undefined);
+            if (again.status === "busy") {
+              delay = Math.min(20000, Math.round(delay * 1.5));
+            } else if (again.status === "miss" && i % 4 === 0) {
+              void ensureWatchMarket(sym).catch(() => undefined);
             }
           }
+          if (!memRef.current.get(sym)) {
+            setError("불러오지 못했습니다.");
+          }
+          setLoading(false);
+          return;
         }
 
         const data = await fetchWatch(sym, MODEL_IDS, 360, refresh);
@@ -217,12 +238,8 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
   );
 
   useEffect(() => {
+    // Single kick — do not prefetch all markets (causes 429 during warmup)
     void startWatchWarmup(false).catch(() => undefined);
-    for (const m of MARKETS) {
-      void peekWatch(m.value, MODEL_IDS, 360).then((p) => {
-        if (p.status === "hit") memRef.current.set(m.value, p.data);
-      });
-    }
   }, []);
 
   useEffect(() => {
@@ -410,14 +427,8 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
             <div className="cache-bar">
               <span className="status">
                 {stillLoading
-                  ? "준비 중…"
-                  : bgBusy
-                    ? `백그라운드 갱신 · ${formatKst(cacheMeta?.cached_at)}`
-                    : cacheMeta?.stale
-                      ? `캐시(갱신 대기) · ${formatKst(cacheMeta?.cached_at)}`
-                      : cacheMeta?.cached
-                        ? `캐시 · ${formatKst(cacheMeta.cached_at)}`
-                        : `최신 · ${formatKst(cacheMeta?.cached_at)}`}
+                  ? "불러오는 중…"
+                  : formatKst(cacheMeta?.cached_at) || ""}
               </span>
               <button
                 type="button"
@@ -426,7 +437,7 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
                 title={
                   cacheMeta?.can_refresh === false
                     ? `다음 리프레시: ${formatKst(cacheMeta.refresh_available_at)}`
-                    : "백그라운드 재계산 (1시간에 한 번)"
+                    : "새로고침"
                 }
                 onClick={() => void load(symbol, true)}
               >
@@ -445,11 +456,10 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
                     <span className="status">
                       {(confidence * 100).toFixed(0)}% · {asof}
                       {!atLive && focusFrame ? " · 리플레이" : ""}
-                      {bgBusy ? " · 갱신 중" : ""}
                     </span>
                   </>
                 ) : (
-                  <span className="status">첫 AI 응답을 기다리는 중…</span>
+                  <span className="status">불러오는 중…</span>
                 )}
               </div>
 
@@ -490,7 +500,6 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
                   <strong style={{ color: REGIME_GUIDE[agreement.regime].color }}>{agreement.regime}</strong>
                   {" · "}
                   {agreement.n}/{agreement.total} 일치
-                  {bgBusy ? " (백그라운드 갱신)" : ""}
                 </p>
               )}
 
@@ -568,7 +577,7 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
             models={modelMarks}
             focusId={focus}
             loading={!hasAny && stillLoading}
-            pendingLabel={bgBusy ? "백그라운드 갱신 중" : null}
+            pendingLabel={null}
           />
         </div>
       </section>

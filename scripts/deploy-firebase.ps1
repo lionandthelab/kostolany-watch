@@ -31,19 +31,30 @@ Pop-Location
 Write-Host "== Deploy Cloud Run API ==" -ForegroundColor Cyan
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com firebasehosting.googleapis.com --quiet
 
-$envArgs = @("DATA_START=2015-01-01")
+$envArgs = @("DATA_START=2015-01-01", "GCS_CACHE_BUCKET=kostolany-watch-cache")
 if ($env:FRED_API_KEY) { $envArgs += "FRED_API_KEY=$($env:FRED_API_KEY)" }
 $envJoined = ($envArgs -join ",")
+
+# Ensure durable cache bucket exists (idempotent; ignore already-exists noise)
+$ErrorActionPreference = "Continue"
+gsutil ls "gs://kostolany-watch-cache" 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  gsutil mb -p $ProjectId -l $Region "gs://kostolany-watch-cache" 2>$null | Out-Null
+}
+$projectNumber = (gcloud projects describe $ProjectId --format="value(projectNumber)")
+$runSa = "$projectNumber-compute@developer.gserviceaccount.com"
+gsutil iam ch "serviceAccount:${runSa}:roles/storage.objectAdmin" "gs://kostolany-watch-cache" 2>$null | Out-Null
+$ErrorActionPreference = "Stop"
 
 gcloud run deploy $Service `
   --source . `
   --region $Region `
   --allow-unauthenticated `
-  --memory 2Gi `
-  --cpu 1 `
+  --cpu 2 `
+  --memory 4Gi `
   --timeout 300 `
-  --concurrency 10 `
-  --max-instances 3 `
+  --concurrency 80 `
+  --max-instances 5 `
   --min-instances 1 `
   --no-cpu-throttling `
   --set-env-vars $envJoined `

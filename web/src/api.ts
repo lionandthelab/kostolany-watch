@@ -79,6 +79,82 @@ export type WatchBundle = {
 
 const API = "/api";
 
+/**
+ * Global API gate:
+ * - serialize peeks
+ * - after Cloud Run 429/503, open a circuit so we do NOT fetch again
+ *   (avoids red DevTools spam; callers see synthetic "busy")
+ */
+let _peekTail: Promise<unknown> = Promise.resolve();
+let _lastPeekAt = 0;
+const PEEK_GAP_MS = 1200;
+let _circuitOpenUntil = 0;
+let _circuitBackoffMs = 8000;
+
+function circuitOpen(): boolean {
+  return Date.now() < _circuitOpenUntil;
+}
+
+function tripCircuit(): void {
+  _circuitOpenUntil = Date.now() + _circuitBackoffMs;
+  _circuitBackoffMs = Math.min(60000, Math.round(_circuitBackoffMs * 1.6));
+}
+
+function easeCircuit(): void {
+  _circuitBackoffMs = 8000;
+}
+
+function syntheticBusy(): Response {
+  return new Response(null, { status: 503, statusText: "circuit-open" });
+}
+
+async function throttledFetch(url: string, init?: RequestInit): Promise<Response> {
+  let result!: Response;
+  _peekTail = _peekTail.then(async () => {
+    if (circuitOpen()) {
+      result = syntheticBusy();
+      return;
+    }
+    const gap = Math.max(0, PEEK_GAP_MS - (Date.now() - _lastPeekAt));
+    if (gap) await new Promise((r) => setTimeout(r, gap));
+    if (circuitOpen()) {
+      result = syntheticBusy();
+      return;
+    }
+    _lastPeekAt = Date.now();
+    result = await fetch(url, init);
+    if (result.status === 429 || result.status === 503) {
+      tripCircuit();
+    } else if (result.ok || result.status === 204 || result.status === 202) {
+      easeCircuit();
+    }
+  });
+  await _peekTail;
+  return result;
+}
+
+/** Cache peeks always hit the network — never blocked by the POST/warmup circuit. */
+async function cachePeekFetch(url: string): Promise<Response> {
+  let result!: Response;
+  _peekTail = _peekTail.then(async () => {
+    const gap = Math.max(0, Math.min(400, PEEK_GAP_MS - (Date.now() - _lastPeekAt)));
+    if (gap) await new Promise((r) => setTimeout(r, gap));
+    _lastPeekAt = Date.now();
+    try {
+      result = await fetch(url);
+      if (result.status === 429 || result.status === 503) {
+        tripCircuit();
+      } else if (result.ok || result.status === 204 || result.status === 202) {
+        easeCircuit();
+      }
+    } catch {
+      result = syntheticBusy();
+    }
+  });
+  await _peekTail;
+  return result;
+}
+
 async function parseError(res: Response): Promise<string> {
   const text = await res.text();
   try {
@@ -93,22 +169,27 @@ async function parseError(res: Response): Promise<string> {
 async function fetchJson<T>(url: string, retries = 3, init?: RequestInit): Promise<T> {
   let lastErr: Error | null = null;
   for (let attempt = 0; attempt < retries; attempt++) {
+    if (circuitOpen()) {
+      const wait = Math.max(500, _circuitOpenUntil - Date.now());
+      await new Promise((r) => setTimeout(r, wait));
+      if (circuitOpen() && attempt === retries - 1) {
+        throw new Error("서버가 바빠요. 잠시 후 다시 시도해 주세요.");
+      }
+      continue;
+    }
     const res = await fetch(url, init);
-    if (res.status === 429) {
+    if (res.status === 429 || res.status === 503) {
       const detail = await parseError(res);
       if (detail.includes("리프레시") || detail.includes("1시간")) {
         throw new Error(detail);
       }
-      lastErr = new Error(`서버가 바빠요 (429). 잠시 후 다시 시도합니다…`);
-      await new Promise((r) => setTimeout(r, 800 * (attempt + 1) ** 2));
-      continue;
-    }
-    if (res.status === 503) {
-      lastErr = new Error(`서버가 바빠요 (503). 잠시 후 다시 시도합니다…`);
-      await new Promise((r) => setTimeout(r, 800 * (attempt + 1) ** 2));
+      tripCircuit();
+      lastErr = new Error(`서버가 바빠요. 잠시 후 다시 시도해 주세요.`);
+      await new Promise((r) => setTimeout(r, Math.max(1000, _circuitOpenUntil - Date.now())));
       continue;
     }
     if (!res.ok) throw new Error(await parseError(res));
+    easeCircuit();
     return res.json() as Promise<T>;
   }
   throw lastErr ?? new Error("요청 실패");
@@ -146,7 +227,7 @@ export async function peekWatch(
     stride: "2",
     peek: "true",
   });
-  const res = await fetch(`${API}/watch?${q}`);
+  const res = await cachePeekFetch(`${API}/watch?${q}`);
   if (res.status === 204) return { status: "miss" };
   if (res.status === 429 || res.status === 503) return { status: "busy" };
   if (!res.ok) throw new Error(await parseError(res));
@@ -169,9 +250,46 @@ export async function fetchWatch(
   return fetchJson(`${API}/watch?${q}`, refresh ? 1 : 3);
 }
 
-export async function startWatchWarmup(force = false): Promise<{ running: boolean; cached: string[] }> {
+export async function startWatchWarmup(force = false): Promise<{ running: boolean; cached: string[] } | null> {
+  // Once per tab session — never stampede Cloud Run with warmup POSTs
+  const key = `kw_watch_warmup_${force ? "f" : "n"}`;
+  if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) && !force) {
+    return null;
+  }
+  if (circuitOpen()) return null;
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(key, "1");
+  } catch {
+    /* private mode */
+  }
   const q = force ? "?force=true" : "";
-  return fetchJson(`${API}/watch/warmup${q}`, 1, { method: "POST" });
+  try {
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(`${API}/watch/warmup${q}`, { method: "POST", signal: ctrl.signal });
+    window.clearTimeout(t);
+    if (res.status === 429 || res.status === 503 || res.status === 502) {
+      tripCircuit();
+      return null;
+    }
+    if (!res.ok) return null;
+    easeCircuit();
+    return (await res.json()) as { running: boolean; cached: string[] };
+  } catch {
+    return null;
+  }
+}
+
+export async function ensureWatchMarket(symbol: string, force = false): Promise<void> {
+  if (circuitOpen()) return;
+  const q = new URLSearchParams({ symbol });
+  if (force) q.set("force", "true");
+  try {
+    const res = await throttledFetch(`${API}/watch/ensure?${q}`, { method: "POST" });
+    if (res.status === 429 || res.status === 503 || res.status === 502) return;
+  } catch {
+    /* peek poll will retry */
+  }
 }
 
 export async function fetchWatchOne(
@@ -237,6 +355,8 @@ export type FlowForecast = {
   points: FlowPoint[];
 };
 
+export type HistRange = "6m" | "1y" | "3y" | "5y";
+
 export type SectorFlow = {
   sector: { id: string; label: string; symbol: string; blurb: string };
   asof: string;
@@ -245,8 +365,11 @@ export type SectorFlow = {
   refreshing?: boolean;
   built_at?: string;
   history: FlowPoint[];
+  hist_range?: HistRange | string;
+  hist_range_label?: string;
   forecasts: FlowForecast[];
-  consensus: { change_pct: number; outlook: "up" | "down" };
+  consensus: { change_pct: number; outlook: "up" | "down" } | null;
+  forecast_pending?: boolean;
   disclaimer: string;
 };
 
@@ -281,27 +404,110 @@ export async function fetchFlowSectors(): Promise<SectorInfo[]> {
 
 export async function peekSectorFlow(sector: string): Promise<PeekResult<SectorFlow>> {
   const q = new URLSearchParams({ sector, peek: "true" });
-  const res = await fetch(`${API}/flows?${q}`);
+  const res = await cachePeekFetch(`${API}/flows?${q}`);
   if (res.status === 204) return { status: "miss" };
   if (res.status === 429 || res.status === 503) return { status: "busy" };
   if (!res.ok) return { status: "miss" };
   return { status: "hit", data: (await res.json()) as SectorFlow };
 }
 
-export async function fetchSectorFlow(sector: string, refresh = false): Promise<SectorFlow> {
-  const q = new URLSearchParams({ sector });
+/** Fast OHLCV chart (no AI). Safe to call while forecasts build. */
+export async function fetchSectorHistory(
+  sector: string,
+  refresh = false,
+  range: HistRange = "1y",
+): Promise<SectorFlow> {
+  const q = new URLSearchParams({ sector, range });
   if (refresh) q.set("refresh", "true");
-  return fetchJson(`${API}/flows?${q}`, refresh ? 1 : 3);
+  return fetchJson(`${API}/flows/history?${q}`, refresh ? 1 : 3);
 }
 
-export async function startFlowsWarmup(force = false): Promise<FlowWarmupStatus> {
+/** Non-blocking: returns null on 202 (building) / 204. Never asks the API to wait/sync. */
+export async function fetchSectorFlow(sector: string, refresh = false): Promise<SectorFlow | null> {
+  const q = new URLSearchParams({ sector, wait: "false" });
+  if (refresh) q.set("refresh", "true");
+  // Prefer cache path even when circuit is open (SWR payload is cheap).
+  const res = refresh ? await throttledFetch(`${API}/flows?${q}`) : await cachePeekFetch(`${API}/flows?${q}`);
+  if (res.status === 202 || res.status === 204 || res.status === 429 || res.status === 503) {
+    return null;
+  }
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as SectorFlow;
+}
+
+export async function ensureSectorFlow(sector: string, force = false): Promise<void> {
+  const q = new URLSearchParams({ sector });
+  if (force) q.set("force", "true");
+  try {
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(`${API}/flows/ensure?${q}`, { method: "POST", signal: ctrl.signal });
+    window.clearTimeout(t);
+    if (res.status === 429 || res.status === 503) tripCircuit();
+  } catch {
+    /* peek poll will retry */
+  }
+}
+
+export async function startFlowsWarmup(force = false): Promise<FlowWarmupStatus | null> {
+  const key = `kw_flows_warmup_${force ? "f" : "n"}`;
+  if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key) && !force) {
+    return null;
+  }
+  if (circuitOpen() && !force) return null;
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(key, "1");
+  } catch {
+    /* private mode */
+  }
   const q = force ? "?force=true" : "";
-  return fetchJson(`${API}/flows/warmup${q}`, 1, { method: "POST" });
+  try {
+    const ctrl = new AbortController();
+    const t = window.setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(`${API}/flows/warmup${q}`, { method: "POST", signal: ctrl.signal });
+    window.clearTimeout(t);
+    if (res.status === 429 || res.status === 503 || res.status === 502) {
+      tripCircuit();
+      return null;
+    }
+    if (!res.ok) return null;
+    easeCircuit();
+    return (await res.json()) as FlowWarmupStatus;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchFlowsWarmupStatus(): Promise<FlowWarmupStatus> {
   return fetchJson(`${API}/flows/warmup`);
 }
+
+export type FearGreedGauge = {
+  score: number;
+  label: string;
+  asof?: string;
+  source?: string;
+  disclaimer?: string;
+  series?: FlowPoint[];
+  components?: {
+    vix?: number | null;
+    spy_ret_20?: number | null;
+    irx_chg_20_bp?: number | null;
+  };
+};
+
+export async function fetchFearGreed(refresh = false): Promise<FearGreedGauge> {
+  const q = refresh ? "?refresh=true" : "";
+  return fetchJson(`${API}/flows/gauge${q}`, refresh ? 1 : 3);
+}
+
+export type NewsTone = {
+  score: number;
+  label: string;
+  bull: number;
+  bear: number;
+  n: number;
+};
 
 export type NewsItem = {
   id: string;
@@ -319,6 +525,8 @@ export type NewsSection = {
   theme: string;
   label_ko: string;
   why: string;
+  summary_ko?: string;
+  tone?: NewsTone;
   items: NewsItem[];
 };
 

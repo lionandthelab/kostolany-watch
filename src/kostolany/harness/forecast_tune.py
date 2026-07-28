@@ -50,7 +50,12 @@ class Scorecard:
     mean_pred_ret: float = 0.0
     mean_real_ret: float = 0.0
     regime_accuracy: float | None = None
+    regime_adjacent_accuracy: float | None = None
+    regime_cycle_distance: float | None = None
     regime_macro_f1: float | None = None
+    regime_brier: float | None = None
+    regime_ece: float | None = None
+    transition_hit: float | None = None
     details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -118,12 +123,22 @@ def forecast_terminal_return(
     traj_row: dict[str, float] | None = None,
 ) -> float:
     """Deterministic expected terminal return (noise-free path mean)."""
-    dates = [str(i) for i in range(FORECAST_DAYS)]
     if kind == "tsfm":
         drift0, _ = _blend_with_table(proba, drift_table)
         h1 = float((traj_row or {}).get("h1", 0.0) or 0.0)
         h5 = float((traj_row or {}).get("h5", 0.0) or 0.0)
         h20 = float((traj_row or {}).get("h20", 0.0) or 0.0)
+        h63 = float((traj_row or {}).get("h63", 0.0) or 0.0)
+        if np.isfinite(h63) and abs(h63) > 1e-12:
+            prior_ret = float(np.expm1(np.clip(drift0 * FORECAST_DAYS, -0.8, 0.8)))
+            return float(
+                np.clip(
+                    params.tsfm_blend * h63
+                    + (1.0 - params.tsfm_blend) * prior_ret,
+                    -0.85,
+                    2.0,
+                )
+            )
         daily_from_tsfm = 0.45 * h1 + 0.35 * (h5 / 5.0) + 0.20 * (h20 / 20.0)
         daily_from_tsfm = float(
             np.clip(daily_from_tsfm * params.tsfm_scale, -params.tsfm_clip, params.tsfm_clip)
@@ -206,28 +221,49 @@ def evaluate_regime_model(
         min_train_size=252,
     )
     preds: list[pd.Series] = []
+    probas: list[pd.DataFrame] = []
     golds: list[pd.Series] = []
+    transition_detected = 0
+    transition_total = 0
     for fold in splitter.split(X):
         Xtr, ytr = X.iloc[fold.train_idx], y_weak.iloc[fold.train_idx]
         Xte = X.iloc[fold.test_idx]
         model = factory()
-        yhat, _ = model.fit_predict(Xtr, ytr, Xte)
+        yhat, proba = model.fit_predict(Xtr, ytr, Xte)
         yg = y_gold.reindex(Xte.index).dropna()
         common = yhat.dropna().index.intersection(yg.index)
         if len(common) == 0:
             continue
         preds.append(yhat.loc[common].astype(int))
+        probas.append(proba.reindex(common))
         golds.append(yg.loc[common].astype(int))
+        fold_report = evaluate_regimes(
+            yg.loc[common].astype(int),
+            yhat.loc[common].astype(int),
+            proba.reindex(common),
+        )
+        transition_detected += int(fold_report.transition.n_detected)
+        transition_total += int(fold_report.transition.n_true_transitions)
     if not preds:
         return Scorecard(name=name)
     y_pred = pd.concat(preds)
     y_true = pd.concat(golds)
-    report = evaluate_regimes(y_true, y_pred)
+    proba_all = pd.concat(probas) if probas else None
+    report = evaluate_regimes(y_true, y_pred, proba_all)
     return Scorecard(
         name=name,
         n_folds=len(preds),
         regime_accuracy=float(report.accuracy),
+        regime_adjacent_accuracy=float(report.adjacent_accuracy),
+        regime_cycle_distance=float(report.mean_cycle_distance),
         regime_macro_f1=float(report.macro_f1),
+        regime_brier=float(report.calibration.brier),
+        regime_ece=float(report.calibration.ece),
+        transition_hit=(
+            float(transition_detected / transition_total)
+            if transition_total
+            else None
+        ),
         details={"n_oos": int(len(y_pred))},
     )
 
@@ -318,6 +354,7 @@ def evaluate_3m_forecast(
                 "h1": float(row.get("h1", 0.0) or 0.0),
                 "h5": float(row.get("h5", 0.0) or 0.0),
                 "h20": float(row.get("h20", 0.0) or 0.0),
+                "h63": float(row.get("h63", 0.0) or 0.0),
             }
 
         p_ret = forecast_terminal_return(

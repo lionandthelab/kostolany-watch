@@ -69,7 +69,7 @@ cd web && npm run dev
 ## TSFM v3
 
 - Default: causal local PatchTST-lite trajectory head (`LocalTSFM`)
-- Ensemble: HMM 0.4 + GBM 0.35 + TSFM 0.25 (`model=tsfm|ensemble_v3`)
+- Ensemble: HMM 0.28 + GBM 0.52 + direct TSFM 0.20 (`model=tsfm|ensemble_v3`)
 - Optional Chronos: `KOSTOLANY_TSFM_BACKEND=chronos` + `pip install -e ".[tsfm]"`
 
 ## Domain map (short)

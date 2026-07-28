@@ -183,6 +183,25 @@ def _find(el: ET.Element, *names: str) -> ET.Element | None:
     return None
 
 
+def _clean_headline(title: str, url: str, summary: str = "") -> str:
+    """Avoid raw Google News article URLs as visible titles (breaks layout)."""
+    t = (title or "").strip()
+    if not t:
+        t = (summary or "").strip()[:120]
+    low = t.lower()
+    if low.startswith("http") or "news.google.com/rss/articles" in low or "news.google.com/articles" in low:
+        host = urlparse(url).netloc.replace("www.", "") if url else ""
+        if host and "news.google" not in host:
+            return f"{host} 헤드라인"
+        bit = (summary or "").strip()
+        if bit and not bit.lower().startswith("http"):
+            return bit[:100] + ("…" if len(bit) > 100 else "")
+        return "헤드라인"
+    if len(t) > 180:
+        return t[:177].rstrip() + "…"
+    return t
+
+
 def _parse_rss_items(xml_text: str) -> list[dict[str, Any]]:
     root = ET.fromstring(xml_text)
     items: list[dict[str, Any]] = []
@@ -199,11 +218,13 @@ def _parse_rss_items(xml_text: str) -> list[dict[str, Any]]:
         pub = _text(_find(item, "pubDate"))
         source_el = _find(item, "source")
         source = _text(source_el) if source_el is not None else ""
-        if title and link:
+        url = _google_news_destination(link) if link else ""
+        title = _clean_headline(title, url, desc)
+        if title and url:
             items.append(
                 {
                     "title": title,
-                    "url": _google_news_destination(link),
+                    "url": url,
                     "summary": desc[:280] if desc else "",
                     "published_at": _iso(_parse_time(pub)),
                     "published_epoch": _parse_time(pub) or 0.0,
@@ -227,6 +248,7 @@ def _parse_rss_items(xml_text: str) -> list[dict[str, Any]]:
         updated = _text(entry.find("{http://www.w3.org/2005/Atom}updated")) or _text(
             entry.find("{http://www.w3.org/2005/Atom}published")
         )
+        title = _clean_headline(title, link, desc)
         if title and link:
             items.append(
                 {
@@ -327,6 +349,117 @@ def _item_importance(it: dict[str, Any]) -> float:
     return score
 
 
+# Lightweight lexical tone — not NLP; enough for a desk meter.
+_TONE_BULL = (
+    "rally",
+    "surge",
+    "soar",
+    "ease",
+    "easing",
+    "cut rates",
+    "rate cut",
+    "dovish",
+    "risk-on",
+    "risk on",
+    "rebound",
+    "인하",
+    "완화",
+    "상승",
+    "호조",
+    "강세",
+    "반등",
+    "유동성",
+)
+_TONE_BEAR = (
+    "hike",
+    "hawkish",
+    "selloff",
+    "sell-off",
+    "recession",
+    "default",
+    "crash",
+    "fear",
+    "risk-off",
+    "risk off",
+    "war",
+    "stress",
+    "tightening",
+    "인상",
+    "긴축",
+    "침체",
+    "하락",
+    "약세",
+    "공포",
+    "전쟁",
+    "디폴트",
+    "부실",
+)
+
+
+def _tone_hits(text: str) -> tuple[int, int]:
+    low = text.lower()
+    bull = sum(1 for kw in _TONE_BULL if kw in low)
+    bear = sum(1 for kw in _TONE_BEAR if kw in low)
+    return bull, bear
+
+
+def score_section_tone(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return -1..+1 tone score plus a short Korean label."""
+    bull = bear = 0
+    for it in items:
+        b, r = _tone_hits(f"{it.get('title') or ''} {it.get('summary') or ''}")
+        bull += b
+        bear += r
+    total = bull + bear
+    if total == 0:
+        score = 0.0
+    else:
+        score = (bull - bear) / float(total)
+    score = float(max(-1.0, min(1.0, score)))
+    if score >= 0.35:
+        label = "완화·위험선호 쪽"
+    elif score <= -0.35:
+        label = "경계·위험회피 쪽"
+    elif abs(score) < 0.12:
+        label = "혼조·중립"
+    elif score > 0:
+        label = "약한 완화 기조"
+    else:
+        label = "약한 경계 기조"
+    return {
+        "score": round(score, 3),
+        "label": label,
+        "bull": bull,
+        "bear": bear,
+        "n": len(items),
+    }
+
+
+def build_section_summary_ko(items: list[dict[str, Any]], *, label_ko: str, why: str) -> str:
+    """One short prose line from top headlines (no LLM)."""
+    if not items:
+        return f"{label_ko}: 수집된 헤드라인이 없습니다."
+    ranked = sorted(items, key=_item_importance, reverse=True)[:3]
+    titles = [str(it.get("title") or "").strip() for it in ranked if str(it.get("title") or "").strip()]
+    if not titles:
+        return f"{label_ko}: {why}"
+    joined = " · ".join(titles)
+    if len(joined) > 150:
+        joined = joined[:147].rstrip() + "…"
+    return f"{why} 지금 눈에 띄는 소식은 {joined}."
+
+
+def enrich_section(theme: str, meta: dict[str, str], items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "theme": theme,
+        "label_ko": meta["label_ko"],
+        "why": meta["why"],
+        "summary_ko": build_section_summary_ko(items, label_ko=meta["label_ko"], why=meta["why"]),
+        "tone": score_section_tone(items),
+        "items": items,
+    }
+
+
 def build_priority_summary_md(items: list[dict[str, Any]], *, limit: int = 8) -> str:
     """Bullet briefing: importance-ranked, max 2 per theme."""
     ranked = sorted(items, key=_item_importance, reverse=True)
@@ -348,7 +481,7 @@ def build_priority_summary_md(items: list[dict[str, Any]], *, limit: int = 8) ->
 
     for it in picked:
         theme_ko = it.get("theme_ko") or THEMES.get(str(it.get("theme")), {}).get("label_ko", "")
-        title = str(it.get("title") or "").strip()
+        title = _clean_headline(str(it.get("title") or ""), str(it.get("url") or ""), str(it.get("summary") or ""))
         source = str(it.get("source") or "").strip()
         url = str(it.get("url") or "").strip()
         bit = f"- **[{theme_ko}]** {source} — [{title}]({url})" if url else f"- **[{theme_ko}]** {source} — {title}"
@@ -373,6 +506,24 @@ def _read_news_cache() -> dict[str, Any] | None:
     out["cache_age_hours"] = round(age_h, 3)
     if not out.get("priority_summary_md"):
         out["priority_summary_md"] = build_priority_summary_md(out["items"])
+    else:
+        # Rebuild brief so cached URL-as-title rows cannot blow the layout.
+        out["priority_summary_md"] = build_priority_summary_md(out["items"])
+    # Backfill section briefs/tone for older caches
+    sections = out.get("sections")
+    if isinstance(sections, list):
+        fixed: list[dict[str, Any]] = []
+        for sec in sections:
+            if not isinstance(sec, dict):
+                continue
+            items = list(sec.get("items") or [])
+            theme = str(sec.get("theme") or "")
+            meta = THEMES.get(theme, {"label_ko": sec.get("label_ko") or theme, "why": sec.get("why") or ""})
+            if not sec.get("summary_ko") or not isinstance(sec.get("tone"), dict):
+                enriched = enrich_section(theme, meta, items)
+                sec = {**sec, "summary_ko": enriched["summary_ko"], "tone": enriched["tone"]}
+            fixed.append(sec)
+        out["sections"] = fixed
     return out
 
 
@@ -443,12 +594,7 @@ def _compute_news_desk(*, per_theme: int = 6) -> dict[str, Any]:
         return {k: v for k, v in it.items() if k not in ("published_epoch", "feed_id")}
 
     sections = [
-        {
-            "theme": key,
-            "label_ko": meta["label_ko"],
-            "why": meta["why"],
-            "items": [_public_item(it) for it in by_theme[key]],
-        }
+        enrich_section(key, meta, [_public_item(it) for it in by_theme[key]])
         for key, meta in THEMES.items()
     ]
 

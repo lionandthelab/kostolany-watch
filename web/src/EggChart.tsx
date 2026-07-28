@@ -53,7 +53,7 @@ export function EggChart({ models, focusId, loading = false, pendingLabel = null
       className={`egg-svg${block ? " is-loading" : ""}`}
       viewBox="0 0 400 480"
       role="img"
-      aria-label={block ? "AI 계산 중" : pendingLabel ? `일부 계산 중: ${pendingLabel}` : "Kostolany egg"}
+      aria-label={block ? "불러오는 중" : pendingLabel ? pendingLabel : "Kostolany egg"}
       aria-busy={block || Boolean(pendingLabel)}
     >
       <defs>
@@ -188,7 +188,7 @@ export function EggChart({ models, focusId, loading = false, pendingLabel = null
             fontWeight="700"
             fill="#1e3d35"
           >
-            AI 계산 중
+            불러오는 중
           </text>
           <text
             x={EGG.cx}

@@ -38,6 +38,8 @@ class CalibrationEval:
 @dataclass
 class RegimeEvalReport:
     accuracy: float
+    adjacent_accuracy: float
+    mean_cycle_distance: float
     macro_f1: float
     weighted_f1: float
     per_class_f1: dict[str, float]
@@ -75,15 +77,18 @@ def evaluate_transitions(
     yt = y_true.dropna().astype(int)
     yp = y_pred.reindex(yt.index).astype(float)
 
-    true_chg = yt.index[(yt.diff().fillna(0) != 0).to_numpy()]
-    pred_chg = yp.index[(yp.diff().fillna(0) != 0).to_numpy() & yp.notna().to_numpy()]
+    true_pos = np.flatnonzero((yt.diff().fillna(0) != 0).to_numpy())
+    pred_pos = np.flatnonzero(
+        (yp.diff().fillna(0) != 0).to_numpy() & yp.notna().to_numpy()
+    )
 
     details: list[dict] = []
     leads: list[float] = []
     hits = 0
-    for t in true_chg:
-        # find nearest predicted change within window
-        deltas = [(p - t).days if hasattr(p - t, "days") else int(p - t) for p in pred_chg]
+    for pos in true_pos:
+        t = yt.index[pos]
+        # Compare trading-bar positions, not calendar-day gaps.
+        deltas = [int(p - pos) for p in pred_pos]
         if not deltas:
             details.append({"true": str(t), "matched": False})
             continue
@@ -96,10 +101,10 @@ def evaluate_transitions(
             details.append({"true": str(t), "matched": False, "nearest_delta": best})
 
     return TransitionEval(
-        n_true_transitions=len(true_chg),
+        n_true_transitions=len(true_pos),
         n_detected=hits,
         mean_lead_days=float(np.mean(leads)) if leads else float("nan"),
-        hit_within_window=float(hits / len(true_chg)) if len(true_chg) else float("nan"),
+        hit_within_window=float(hits / len(true_pos)) if len(true_pos) else float("nan"),
         details=details[:50],
     )
 
@@ -147,6 +152,12 @@ def evaluate_regimes(
 
     return RegimeEvalReport(
         accuracy=float(accuracy_score(yt, yp)),
+        adjacent_accuracy=float(
+            np.mean(np.minimum(np.abs(yt - yp), 6 - np.abs(yt - yp)) <= 1)
+        ),
+        mean_cycle_distance=float(
+            np.mean(np.minimum(np.abs(yt - yp), 6 - np.abs(yt - yp)))
+        ),
         macro_f1=float(f1_score(yt, yp, average="macro", labels=labels, zero_division=0)),
         weighted_f1=float(f1_score(yt, yp, average="weighted", labels=labels, zero_division=0)),
         per_class_f1=per_f1,
