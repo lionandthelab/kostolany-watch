@@ -13,11 +13,21 @@ from kostolany import blob_cache
 WATCH_TTL_HOURS = 6.0
 REFRESH_COOLDOWN_HOURS = 1.0
 
+# Bump whenever the served regime output or the payload shape changes. The cache
+# is mirrored to GCS and survives deploys, so without this a new revision keeps
+# serving the previous model's answers for up to WATCH_TTL_HOURS.
+#   v2: bijective HMM state->regime mapping (no structurally-zero regimes),
+#       corrected weak-label drawdown terms, `calibration` block in the payload.
+WATCH_PAYLOAD_VERSION = "v2"
+
 
 def _path(symbol: str, models: str, limit: int, stride: int) -> Path:
     safe_sym = "".join(c if c.isalnum() or c in "-_." else "_" for c in symbol.upper())
     safe_models = "".join(c if c.isalnum() or c in ",-_." else "_" for c in models)
-    name = f"watch_{safe_sym}_{safe_models}_L{limit}_S{stride}.json"
+    name = (
+        f"watch_{safe_sym}_{safe_models}_L{limit}_S{stride}"
+        f"_{WATCH_PAYLOAD_VERSION}.json"
+    )
     return get_settings().cache_path / name
 
 
