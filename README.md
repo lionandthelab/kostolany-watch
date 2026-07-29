@@ -67,7 +67,7 @@ firebase login   # 토큰 만료 시 필수
 
 - Agent harness: [`docs/AGENT_HARNESS.md`](docs/AGENT_HARNESS.md)
 - ML eval harness: [`docs/HARNESS.md`](docs/HARNESS.md)
-- `.env.example` → `FRED_API_KEY`, `KOSTOLANY_TSFM_BACKEND`
+- `.env.example` → `FRED_API_KEY`, `CACHE_DIR`, `DATA_START`
 
 ## 평가 원칙 (Harness)
 

@@ -22,6 +22,21 @@ type Props = {
   onNews?: () => void;
 };
 
+/** A prior scenario and a learned forecast must never look alike in the legend. */
+const ARM_KIND_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
+  regime_prior: { label: "국면 시나리오", bg: "rgba(196,92,62,0.14)", fg: "#a3492e" },
+  learned: { label: "학습 예측", bg: "rgba(47,93,80,0.14)", fg: "#2f5d50" },
+};
+
+const BADGE_BASE = {
+  marginLeft: 6,
+  padding: "1px 7px",
+  borderRadius: 999,
+  fontSize: "0.72em",
+  fontWeight: 600,
+  whiteSpace: "nowrap" as const,
+};
+
 const HIST_RANGE_OPTIONS: { id: HistRange; label: string }[] = [
   { id: "6m", label: "6개월" },
   { id: "1y", label: "1년" },
@@ -49,6 +64,45 @@ function toPath(
     .join(" ");
 }
 
+/**
+ * Shaded q10–q90 cone for one arm. Only the terminal band is a model claim; the
+ * taper hugs that arm's own path and widens with sqrt(time) — the plain
+ * random-walk shape — so no intermediate quantile is invented. Returns "" when
+ * the arm produced no band, which is the correct outcome for a prior scenario.
+ */
+function toBandPath(
+  f: FlowForecast,
+  x0: number,
+  x1: number,
+  y0: number,
+  y1: number,
+  vMin: number,
+  vMax: number,
+): string {
+  const band = f.band;
+  const n = f.points.length;
+  if (!band || !n) return "";
+  const endVal = f.points[n - 1].value;
+  const hi: number[] = [100];
+  const lo: number[] = [100];
+  for (let i = 0; i < n; i++) {
+    const w = Math.sqrt((i + 1) / n);
+    hi.push(f.points[i].value + (band.q90 - endVal) * w);
+    lo.push(f.points[i].value + (band.q10 - endVal) * w);
+  }
+  const span = Math.max(1e-6, vMax - vMin);
+  const xAt = (i: number) => x0 + ((x1 - x0) * i) / Math.max(1, hi.length - 1);
+  const yAt = (v: number) => y1 - ((v - vMin) / span) * (y1 - y0);
+  const up = hi
+    .map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`)
+    .join(" ");
+  let down = "";
+  for (let i = lo.length - 1; i >= 0; i--) {
+    down += ` L${xAt(i).toFixed(1)},${yAt(lo[i]).toFixed(1)}`;
+  }
+  return `${up}${down} Z`;
+}
+
 function fmtAxisDate(iso: string): string {
   if (!iso) return "";
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -74,7 +128,11 @@ function FlowChart({
 
   const allVals = useMemo(() => {
     const vals = history.map((p) => p.value);
-    for (const f of forecasts) for (const p of f.points) vals.push(p.value);
+    for (const f of forecasts) {
+      for (const p of f.points) vals.push(p.value);
+      // Bands are honest and wide; let them set the scale rather than clip.
+      if (f.band) vals.push(f.band.q10, f.band.q90);
+    }
     return vals;
   }, [history, forecasts]);
 
@@ -139,6 +197,15 @@ function FlowChart({
             />
           </>
         )}
+
+        {!forecastLoading &&
+          forecasts.map((f) => {
+            const d = toBandPath(f, splitX, W - pad.r, pad.t, H - pad.b, vMin, vMax);
+            if (!d) return null;
+            return (
+              <path key={`band-${f.id}`} d={d} fill={f.color} opacity={0.14} stroke="none" />
+            );
+          })}
 
         {!forecastLoading &&
           forecasts.map((f) => {
@@ -755,15 +822,76 @@ export default function FlowsDesk({ onBack, onWatch, onNews }: Props) {
           {showForecastPending || !chartMatches ? (
             <li className="flow-legend-pending">AI 3개월 시나리오 로딩 중…</li>
           ) : (
-            displayFlow?.forecasts.map((f) => (
-              <li key={f.id}>
-                <i style={{ background: f.color }} />
-                {f.label} · {f.outlook === "up" ? "Up" : "Down"} {f.change_pct > 0 ? "+" : ""}
-                {f.change_pct}% · {f.regime}
-              </li>
-            ))
+            displayFlow?.forecasts.map((f) => {
+              const badge = f.arm_kind ? ARM_KIND_BADGE[f.arm_kind] : undefined;
+              return (
+                <li key={f.id}>
+                  <i style={{ background: f.color }} />
+                  {f.label} · {f.outlook === "up" ? "Up" : "Down"} {f.change_pct > 0 ? "+" : ""}
+                  {f.change_pct}% · {f.regime}
+                  {badge && (
+                    <span style={{ ...BADGE_BASE, background: badge.bg, color: badge.fg }}>
+                      {badge.label}
+                    </span>
+                  )}
+                  {f.band && (
+                    <span
+                      style={{
+                        ...BADGE_BASE,
+                        background: "transparent",
+                        color: "rgba(26,31,28,0.5)",
+                        fontWeight: 500,
+                      }}
+                    >
+                      음영 = q10~q90
+                    </span>
+                  )}
+                </li>
+              );
+            })
           )}
         </ul>
+
+        {(() => {
+          // P(up) only means something beside the asset's own base rate.
+          if (showForecastPending || !chartMatches || !displayFlow) return null;
+          const arm = displayFlow.forecasts.find((f) => typeof f.p_up === "number");
+          if (!arm || typeof arm.p_up !== "number") return null;
+          const base = displayFlow.base_rate_up;
+          const n = displayFlow.base_rate_n;
+          return (
+            <div
+              className="flow-pup-row"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: 10,
+                marginTop: 4,
+              }}
+            >
+              <span
+                style={{
+                  ...BADGE_BASE,
+                  marginLeft: 0,
+                  fontSize: "0.86rem",
+                  padding: "3px 10px",
+                  background: "rgba(74,124,155,0.16)",
+                  color: "#31607d",
+                }}
+              >
+                {arm.label} 상승 확률 {Math.round(arm.p_up * 100)}%
+              </span>
+              <span className="status" style={{ margin: 0 }}>
+                {typeof base === "number"
+                  ? `과거 3개월 상승 비율 ${Math.round(base * 100)}%${
+                      n ? ` (겹치는 ${n}봉 기준)` : ""
+                    }`
+                  : "과거 상승 비율 없음"}
+              </span>
+            </div>
+          );
+        })()}
       </section>
 
       {displayFlow && <p className="disclaimer">{displayFlow.disclaimer}</p>}

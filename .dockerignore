@@ -1,12 +1,37 @@
+# The image only needs pyproject.toml, README.md and src/ (see Dockerfile).
+# Everything else is build-context upload time we pay on every Cloud Build.
 .venv
-__pycache__
-*.pyc
+# `**/` is required: a bare `__pycache__` only matches the context root, so the
+# old rule let src/kostolany/**/__pycache__ (~700 kB of stale .pyc) into the image.
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
 .git
+.github
 .cursor
-web/node_modules
-web/dist
+.omc
+
+# Web UI is deployed to Firebase Hosting, not served by the API container.
+web
+
+# Data / model artifacts are pulled from GCS at runtime, never baked in.
 artifacts
 *.joblib
+*.parquet
+
+# Not imported by the API package.
+tests
+docs
+scripts
+AGENTS.md
+kostolany_engine_proposal.md
+
+# Secrets and local deploy state must never enter the context.
 .env
+.env.example
+.secrets
 firebase-debug.log
 .firebase
+.firebaserc
+firebase.json

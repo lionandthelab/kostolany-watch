@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from kostolany.calibration import calibration_payload
 from kostolany.engine import KostolanyEngine, fit_analyst_bundle
 from kostolany.regimes import DISCLAIMER_KO, REGIME_META, Regime
 from kostolany.watch_cache import (
@@ -147,7 +148,14 @@ def _build_watch_body(
             )
     else:
         analysts = [_build_one_analyst(symbol, mid, limit, stride) for mid in ids]
-    return {"symbol": symbol, "analysts": analysts, "disclaimer": DISCLAIMER_KO}
+    return {
+        "symbol": symbol,
+        "analysts": analysts,
+        "disclaimer": DISCLAIMER_KO,
+        # Measured OOS calibration so the UI can qualify the confidence number
+        # instead of rendering an uncalibrated posterior max as a percentage.
+        "calibration": calibration_payload(),
+    }
 
 
 def _parse_model_ids(models: str) -> list[str]:

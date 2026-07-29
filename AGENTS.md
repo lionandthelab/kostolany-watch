@@ -46,9 +46,8 @@ scripts/     # agent verify helpers
 # venv
 .\.venv\Scripts\activate   # Windows
 pip install -e ".[dev]"
-# optional Korea connectors / Chronos
+# optional Korea connectors
 pip install -e ".[korea]"
-# pip install -e ".[tsfm]"
 
 # agent verify (hooks/skills가 호출)
 python scripts/agent_verify.py
@@ -70,7 +69,8 @@ cd web && npm run dev
 
 - Default: causal local PatchTST-lite trajectory head (`LocalTSFM`)
 - Ensemble: HMM 0.28 + GBM 0.52 + direct TSFM 0.20 (`model=tsfm|ensemble_v3`)
-- Optional Chronos: `KOSTOLANY_TSFM_BACKEND=chronos` + `pip install -e ".[tsfm]"`
+- The Chronos backend and the `[tsfm]` extra were removed; `build_tsfm()` always
+  returns `LocalTSFM`. There is no `KOSTOLANY_TSFM_BACKEND` setting any more.
 
 ## Domain map (short)
 

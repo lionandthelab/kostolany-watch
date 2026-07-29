@@ -44,7 +44,11 @@ def weak_labels(features: pd.DataFrame) -> pd.Series:
                 + (1 - r_sent) * 0.2
                 + (1 - r_surge) * 0.15
                 + (r_trend.clip(0, 0.6) / 0.6) * 0.15
-                + (-dd.clip(-0.4, 0) / 0.4) * 0.25
+                # A1 = accumulation off a bottom, so depth-below-peak earns the
+                # 0.25 budget. Normalize by the conventional -20% bear threshold:
+                # the old /0.4 needed a 40% drawdown, which never occurs on KS11
+                # (0.00% of bars), capping this term at 0.223 with sd 0.042.
+                + (-dd.clip(-0.20, 0) / 0.20) * 0.25
             ),
             int(Regime.A2): (
                 r_trend * 0.35
@@ -64,7 +68,11 @@ def weak_labels(features: pd.DataFrame) -> pd.Series:
                 + r_sent * 0.25
                 + (1 - r_vol) * 0.2
                 + r_part * 0.15
-                + (1 + dd.clip(-0.12, 0)).clip(0, 1) * 0.15
+                # B1 = distribution near the top, so shallow drawdown earns the
+                # 0.15 budget. The /0.12 normalizer is required: without it the
+                # term spanned only [0.132, 0.150] (sd 0.007), a near-constant
+                # bonus that made B1 the catch-all class (19.9% of raw argmax).
+                + (1 + dd.clip(-0.12, 0) / 0.12).clip(0, 1) * 0.15
             ),
             int(Regime.B2): (
                 (1 - r_trend) * 0.35
@@ -110,6 +118,11 @@ def gold_labels(prices: pd.Series, *, min_cycle: int = 60) -> pd.Series:
     is_peak = (px == roll_max) & (px.shift(1) < px) & (px.shift(-1) < px)
     is_trough = (px == roll_min) & (px.shift(1) > px) & (px.shift(-1) > px)
 
+    # ``min_cycle`` is expressed in trading bars everywhere else (``win`` above,
+    # the caller's default of 60), so the minimum-gap test must be in bars too.
+    # Calendar ``delta.days`` overstates a bar gap by ~1.45x on daily equity
+    # data, which let legs shorter than ``min_cycle // 2`` bars survive.
+    positions = {ts: i for i, ts in enumerate(px.index)}
     turns = sorted(
         [(i, "peak") for i in px.index[is_peak.fillna(False)]]
         + [(i, "trough") for i in px.index[is_trough.fillna(False)]]
@@ -126,9 +139,7 @@ def gold_labels(prices: pd.Series, *, min_cycle: int = 60) -> pd.Series:
             elif kind == "trough" and px.loc[t] <= px.loc[prev_t]:
                 filtered[-1] = (t, kind)
             continue
-        delta = t - prev_t
-        gap = delta.days if hasattr(delta, "days") else int(delta)
-        if gap < min_cycle // 2:
+        if positions[t] - positions[prev_t] < min_cycle // 2:
             continue
         filtered.append((t, kind))
 

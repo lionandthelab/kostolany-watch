@@ -64,10 +64,25 @@ export type WatchAnalyst = {
   replay: ReplayResponse;
 };
 
+/** Measured out-of-sample calibration facts — not a model output. */
+export type RegimeCalibration = {
+  measured: Record<string, { exact6: number; adjacent: number; ece: number; brier: number }>;
+  constant_prior_baseline: { exact6: number; adjacent: number; ece: number; brier: number };
+  exact6_chance: number;
+  adjacent_floor: number;
+  n_oos_bars: number;
+  n_oos_legs: number;
+  window: string;
+  artifact: string;
+  confidence_is_calibrated: boolean;
+  note_ko: string;
+};
+
 export type WatchBundle = {
   symbol: string;
   analysts: WatchAnalyst[];
   disclaimer: string;
+  calibration?: RegimeCalibration;
   cached?: boolean;
   stale?: boolean;
   refreshing?: boolean;
@@ -344,6 +359,12 @@ export async function fetchNews(refresh = false): Promise<NewsDesk> {
 
 export type FlowPoint = { date: string; value: number };
 
+/** Terminal q10/q90 as 100-based index levels, consistent with `points`. */
+export type FlowBand = { q10: number; q90: number };
+
+/** "regime_prior" = closed-form scenario over hardcoded drifts, not a forecast. */
+export type FlowArmKind = "regime_prior" | "learned";
+
 export type FlowForecast = {
   id: string;
   label: string;
@@ -353,6 +374,13 @@ export type FlowForecast = {
   outlook: "up" | "down";
   change_pct: number;
   points: FlowPoint[];
+  /** pooled_v1 | local_tsfm | regime_prior | regime_prior_fallback */
+  engine?: string;
+  arm_kind?: FlowArmKind;
+  /** null whenever the model produced no quantiles — never synthesised. */
+  band?: FlowBand | null;
+  /** Calibrated P(63d return > 0); null when the arm has no direction head. */
+  p_up?: number | null;
 };
 
 export type HistRange = "6m" | "1y" | "3y" | "5y";
@@ -370,6 +398,12 @@ export type SectorFlow = {
   forecasts: FlowForecast[];
   consensus: { change_pct: number; outlook: "up" | "down" } | null;
   forecast_pending?: boolean;
+  /** Engine backing the one learnable arm on this payload. */
+  forecast_engine?: string;
+  /** Unconditional share of positive 63-bar forward returns (0..1). */
+  base_rate_up?: number | null;
+  /** Overlapping bar count behind `base_rate_up` — not independent samples. */
+  base_rate_n?: number;
   disclaimer: string;
 };
 

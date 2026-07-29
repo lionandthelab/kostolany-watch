@@ -7,7 +7,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -157,8 +157,10 @@ def _iso(ts: float | None = None) -> str:
 
 def _cache_path(sector_id: str):
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in sector_id)
-    # Suffix bumps when the Flows forecast head changes (pooled promotion).
-    return get_settings().cache_path / f"flows_{safe}_pooled_v1.json"
+    # Suffix bumps when the Flows forecast head or payload contract changes.
+    # v2: band / p_up / arm_kind + honest disclaimer — old blobs would keep
+    # serving the "AI 3명" framing and no uncertainty, so they must not be read.
+    return get_settings().cache_path / f"flows_{safe}_pooled_v2.json"
 
 
 def _hist_cache_path(sector_id: str, range_key: str = DEFAULT_HIST_RANGE):
@@ -290,7 +292,7 @@ def build_sector_history(
         "forecast_pending": True,
         "cached": False,
         "stale": False,
-        "disclaimer": "실데이터(지수=100). AI 3개월 시나리오는 별도 로딩.",
+        "disclaimer": "실데이터(지수=100). 3개월 시나리오는 별도 로딩.",
         "built_at": _iso(),
     }
     path = _hist_cache_path(sector_id, rk)
@@ -536,6 +538,62 @@ def _path_from_proba(
     return out
 
 
+class ArmPath(NamedTuple):
+    """One analyst arm's forward path plus whatever uncertainty it actually produced.
+
+    ``band``/``p_up`` stay ``None`` unless the underlying model emitted them —
+    a closed-form regime-prior scenario has no predictive distribution to show,
+    and inventing one would misrepresent a constant table as a forecast.
+    """
+
+    points: list[dict[str, float | str]]
+    engine: str
+    kind: str  # "regime_prior" (closed-form prior scenario) | "learned"
+    band: dict[str, float] | None
+    p_up: float | None
+
+
+# Same clamp the level anchors use, so a band can never render off-chart.
+_RET_CLIP = (-0.85, 2.0)
+
+
+def _band_levels(base: float, lo_ret: float, hi_ret: float) -> dict[str, float] | None:
+    """Convert cumulative-return quantiles into 100-based index levels."""
+    if not (np.isfinite(lo_ret) and np.isfinite(hi_ret)):
+        return None
+    lo, hi = (lo_ret, hi_ret) if lo_ret <= hi_ret else (hi_ret, lo_ret)
+    lo = float(np.clip(lo, *_RET_CLIP))
+    hi = float(np.clip(hi, *_RET_CLIP))
+    return {
+        "q10": round(float(base) * (1.0 + lo), 6),
+        "q90": round(float(base) * (1.0 + hi), 6),
+    }
+
+
+def _finite_or_none(value: Any) -> float | None:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if np.isfinite(out) else None
+
+
+def _up_rate(closes: pd.Series, horizon: int = FORECAST_DAYS) -> tuple[float | None, int]:
+    """Unconditional share of positive ``horizon``-bar forward returns.
+
+    Purely descriptive: this is the base rate the model's P(up) must be read
+    against. It is never a feature or a training target, and the windows
+    overlap, so ``n`` is a bar count and not an independent sample count.
+    """
+    s = closes.dropna().astype(float).sort_index()
+    if len(s) <= horizon + 1:
+        return None, 0
+    fwd = (s.shift(-horizon) / s - 1.0).dropna()
+    if fwd.empty:
+        return None, 0
+    return float((fwd > 0.0).mean()), int(len(fwd))
+
+
 def _pooled_eligible(symbol: str) -> bool:
     """Equity-only promotion: commodities/bonds/crypto keep LocalTSFM."""
     from kostolany.harness.pooled_forecast import _asset_group
@@ -551,7 +609,7 @@ def _pooled_path(
     proba: dict[str, float],
     *,
     direct_weight: float = 0.92,
-) -> list[dict[str, float | str]] | None:
+) -> ArmPath | None:
     """Build path from promoted pooled h63 forecast (falls back to None)."""
     if not _pooled_eligible(symbol):
         return None
@@ -564,6 +622,9 @@ def _pooled_path(
         return None
     if not np.isfinite(h63):
         return None
+    q10 = _finite_or_none(fc.get("q10"))
+    q90 = _finite_or_none(fc.get("q90"))
+    p_up = _finite_or_none(fc.get("p_up"))
 
     drift0, _vol0 = _blend_drift(proba)
     prior_ret = float(np.expm1(np.clip(drift0 * len(dates), -0.8, 0.8)))
@@ -572,14 +633,23 @@ def _pooled_path(
     mid = w * h63 * (20 / 63) + (1.0 - w) * prior_ret * (20 / 63)
     short = w * h63 * (5 / 63) + (1.0 - w) * prior_ret * (5 / 63)
     anchors_h = np.asarray([0.0, 5.0, 20.0, float(len(dates))])
-    anchors_r = np.clip(np.asarray([0.0, short, mid, terminal], dtype=float), -0.85, 2.0)
+    anchors_r = np.clip(np.asarray([0.0, short, mid, terminal], dtype=float), *_RET_CLIP)
     anchors_log = np.log1p(anchors_r)
     out: list[dict[str, float | str]] = []
     for i, d in enumerate(dates, start=1):
         cum_log = float(np.interp(i, anchors_h, anchors_log))
         level = float(last_close) * float(np.exp(cum_log))
         out.append({"date": d, "value": round(level, 6)})
-    return out
+
+    # The plotted centre is shrunk toward the regime prior, so the reported
+    # band takes the same affine map; otherwise the cone would not contain its
+    # own median. No band is synthesised when the model emitted no quantiles.
+    band = (
+        _band_levels(last_close, w * q10 + (1.0 - w) * prior_ret, w * q90 + (1.0 - w) * prior_ret)
+        if q10 is not None and q90 is not None
+        else None
+    )
+    return ArmPath(points=out, engine="pooled_v1", kind="learned", band=band, p_up=p_up)
 
 
 def _tsfm_path(
@@ -589,7 +659,7 @@ def _tsfm_path(
     proba: dict[str, float],
     *,
     direct_weight: float = 0.85,
-) -> list[dict[str, float | str]]:
+) -> ArmPath:
     """Build a deterministic path from direct h5/h20/h63 return forecasts.
 
     The regime prior remains a conservative shrinkage target, but no longer
@@ -606,14 +676,22 @@ def _tsfm_path(
         h63 = float(row.get("h63", 0.0) or 0.0)
 
     if not np.isfinite(h63) or abs(h63) < 1e-12:
-        # Backward-compatible fallback for old/failed model artifacts.
-        return _path_from_proba(
-            last_close,
-            proba,
-            dates,
-            seed=77,
-            stickiness=0.82,
-            shock=0.0,
+        # Backward-compatible fallback for old/failed model artifacts. This
+        # path is the hardcoded regime-prior table, so it must NOT report
+        # itself as a learned LocalTSFM forecast.
+        return ArmPath(
+            points=_path_from_proba(
+                last_close,
+                proba,
+                dates,
+                seed=77,
+                stickiness=0.82,
+                shock=0.0,
+            ),
+            engine="regime_prior_fallback",
+            kind="regime_prior",
+            band=None,
+            p_up=None,
         )
 
     # Shrink direct forecasts toward the analyst-specific regime prior.
@@ -627,7 +705,7 @@ def _tsfm_path(
     # enough for crypto while preventing malformed models from breaking SVGs.
     anchors_h = np.asarray([0.0, 5.0, 20.0, float(len(dates))])
     anchors_r = np.clip(
-        np.asarray([0.0, short, mid, terminal], dtype=float), -0.85, 2.0
+        np.asarray([0.0, short, mid, terminal], dtype=float), *_RET_CLIP
     )
     anchors_log = np.log1p(anchors_r)
     out: list[dict[str, float | str]] = []
@@ -635,7 +713,30 @@ def _tsfm_path(
         cum_log = float(np.interp(i, anchors_h, anchors_log))
         level = float(last_close) * float(np.exp(cum_log))
         out.append({"date": d, "value": round(level, 6)})
-    return out
+
+    # Same shrinkage the median got; absent quantile heads stay absent.
+    q10 = q90 = None
+    quants = getattr(traj, "quantiles", None)
+    if quants is not None and len(quants):
+        qrow = quants.iloc[-1]
+        q10 = _finite_or_none(qrow.get("h63_q10"))
+        q90 = _finite_or_none(qrow.get("h63_q90"))
+    band = (
+        _band_levels(
+            last_close,
+            direct_weight * q10 + (1.0 - direct_weight) * prior_ret,
+            direct_weight * q90 + (1.0 - direct_weight) * prior_ret,
+        )
+        if q10 is not None and q90 is not None
+        else None
+    )
+
+    p_up = None
+    dproba = getattr(traj, "direction_proba", None)
+    if dproba is not None and len(dproba):
+        p_up = _finite_or_none(dproba.iloc[-1])
+
+    return ArmPath(points=out, engine="local_tsfm", kind="learned", band=band, p_up=p_up)
 
 
 def build_sector_flow(
@@ -680,6 +781,28 @@ def build_sector_flow(
     return _compute_sector_flow(sector_id)
 
 
+def _flow_disclaimer(prior_labels: list[str]) -> str:
+    """State plainly which arms are learned and which are prior scenarios.
+
+    Two of the three paths are a closed form over six hardcoded regime drift
+    constants, so calling them independent AI forecasts would be false.
+    """
+    n = len(prior_labels)
+    if n >= len(ANALYSTS):
+        head = f"3개 경로 모두({'·'.join(prior_labels)}) 학습된 예측이 아니라 국면 사전확률 시나리오입니다."
+    elif n:
+        head = (
+            f"3개 경로 중 {n}개({'·'.join(prior_labels)})는 학습된 예측이 아니라 "
+            "국면 사전확률로 만든 시나리오입니다."
+        )
+    else:
+        head = "3개 경로는 서로 다른 추정기의 출력입니다."
+    return (
+        "실데이터(지수=100). "
+        f"{head} 3개월 수치는 예측이 아니라 교육용 참고값이며 투자 권유 아님."
+    )
+
+
 def _compute_sector_flow(sector_id: str) -> dict[str, Any]:
     meta = _sector_meta(sector_id)
     path = _cache_path(sector_id)
@@ -711,25 +834,40 @@ def _compute_sector_flow(sector_id: str) -> dict[str, Any]:
 
     fwd_dates = _forward_dates(last_ts, FORECAST_DAYS)
     forecasts = []
+    # Engine of the one arm that can be learned. Hoisted so it is defined for
+    # every code path (the tsfm branch may fall back to the prior table).
+    forecast_engine = "regime_prior"
     for a in ANALYSTS:
         proba = snaps[a["id"]]["probabilities"]
         if a["id"] == "hmm":
-            series = _path_from_proba(
-                100.0,
-                proba,
-                fwd_dates,
-                seed=11,
-                stickiness=0.92,
-                shock=0.0,
+            arm = ArmPath(
+                points=_path_from_proba(
+                    100.0,
+                    proba,
+                    fwd_dates,
+                    seed=11,
+                    stickiness=0.92,
+                    shock=0.0,
+                ),
+                engine="regime_prior",
+                kind="regime_prior",
+                band=None,
+                p_up=None,
             )
         elif a["id"] == "gbm":
-            series = _path_from_proba(
-                100.0,
-                proba,
-                fwd_dates,
-                seed=29,
-                stickiness=0.72,
-                shock=0.0,
+            arm = ArmPath(
+                points=_path_from_proba(
+                    100.0,
+                    proba,
+                    fwd_dates,
+                    seed=29,
+                    stickiness=0.72,
+                    shock=0.0,
+                ),
+                engine="regime_prior",
+                kind="regime_prior",
+                band=None,
+                p_up=None,
             )
         else:
             # Promoted pooled cross-asset head (equity); LocalTSFM fallback.
@@ -740,14 +878,15 @@ def _compute_sector_flow(sector_id: str) -> dict[str, Any]:
                 proba,
                 direct_weight=0.92,
             )
-            series = pooled or _tsfm_path(
+            arm = pooled or _tsfm_path(
                 engines["tsfm"],
                 100.0,
                 fwd_dates,
                 proba,
                 direct_weight=0.90,
             )
-            forecast_engine = "pooled_v1" if pooled is not None else "local_tsfm"
+            forecast_engine = arm.engine
+        series = arm.points
         end = float(series[-1]["value"]) if series else 100.0
         row: dict[str, Any] = {
             "id": a["id"],
@@ -758,14 +897,21 @@ def _compute_sector_flow(sector_id: str) -> dict[str, Any]:
             "outlook": "up" if end >= 100.0 else "down",
             "change_pct": round((end / 100.0 - 1.0) * 100.0, 2),
             "points": series,
+            "engine": arm.engine,
+            "arm_kind": arm.kind,
+            "band": arm.band,
+            "p_up": round(arm.p_up, 4) if arm.p_up is not None else None,
         }
-        if a["id"] == "tsfm":
-            row["engine"] = forecast_engine
         forecasts.append(row)
 
     # Consensus: average of three terminal levels
     term = [float(f["points"][-1]["value"]) for f in forecasts if f["points"]]
     consensus = float(np.mean(term)) if term else 100.0
+
+    # Base rate P(up) must sit next to the model's P(up) so the reader can see
+    # how far (if at all) the model moves off it. Descriptive, never a feature.
+    base_rate_up, base_rate_n = _up_rate(ohlcv["close"])
+    prior_labels = [str(f["label"]) for f in forecasts if f["arm_kind"] == "regime_prior"]
 
     payload = {
         "sector": {
@@ -785,9 +931,10 @@ def _compute_sector_flow(sector_id: str) -> dict[str, Any]:
             "change_pct": round((consensus / 100.0 - 1.0) * 100.0, 2),
             "outlook": "up" if consensus >= 100.0 else "down",
         },
-        "disclaimer": (
-            "실데이터(지수=100) + AI 3명 3개월 시나리오. 투자 권유 아님."
-        ),
+        "forecast_engine": forecast_engine,
+        "base_rate_up": round(base_rate_up, 4) if base_rate_up is not None else None,
+        "base_rate_n": base_rate_n,
+        "disclaimer": _flow_disclaimer(prior_labels),
         "built_at": _iso(),
     }
     try:

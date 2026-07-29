@@ -53,6 +53,40 @@ def causal_cycle_filter(proba: pd.DataFrame, strength: float = 0.22) -> pd.DataF
     return pd.DataFrame(out, index=proba.index, columns=cols)
 
 
+def _assign_states_to_regimes(
+    states: pd.Series,
+    weak: pd.Series,
+    n_states: int,
+    *,
+    fallback: dict[int, int] | None = None,
+) -> dict[int, int]:
+    """Bijective state->regime assignment maximizing weak-label agreement.
+
+    Builds the state x regime co-occurrence matrix and solves it as a linear
+    assignment problem, so every regime is claimed by at most one state and —
+    when ``n_states >= 6`` — every regime is reachable. States with no support
+    fall back to the prototype mapping.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    fallback = fallback or {}
+    counts = np.zeros((n_states, 6), dtype=float)
+    for state, regime in zip(states.to_numpy(), weak.to_numpy()):
+        if np.isnan(state):
+            continue
+        counts[int(state), int(regime)] += 1.0
+
+    # linear_sum_assignment minimizes; negate to maximize agreement.
+    rows, cols = linear_sum_assignment(-counts)
+    mapping = {int(s): int(r) for s, r in zip(rows, cols)}
+
+    # Any state left unassigned (n_states > 6) keeps its prototype regime.
+    for state in range(n_states):
+        if state not in mapping:
+            mapping[state] = int(fallback.get(state, int(Regime.A2)))
+    return mapping
+
+
 class KostolanyHMM:
     """Multivariate Gaussian HMM with Kostolany regime mapping."""
 
@@ -89,18 +123,18 @@ class KostolanyHMM:
         states = model.predict(arr)
         self.mapping_ = map_hmm_states_to_regimes(states, Xc, self.n_states)
 
-        # If weak labels provided, refine mapping by majority vote (still no gold)
+        # If weak labels provided, refine the mapping (still no gold). An
+        # unconstrained per-state majority vote lets several states claim the
+        # same regime, which leaves the remaining regimes unreachable: predict()
+        # only sums posterior mass into mapped regimes, so an unclaimed regime
+        # is structurally probability-zero and the served posterior saturates.
+        # Solve the state->regime assignment as a bijection instead.
         if y is not None:
             yy = y.reindex(Xc.index).dropna().astype(int)
             st = pd.Series(states, index=Xc.index).reindex(yy.index)
-            refined = {}
-            for s in range(self.n_states):
-                mask = st == s
-                if mask.any():
-                    refined[s] = int(yy.loc[mask].mode().iloc[0])
-                else:
-                    refined[s] = self.mapping_.get(s, int(Regime.A2))
-            self.mapping_ = refined
+            self.mapping_ = _assign_states_to_regimes(
+                st, yy, self.n_states, fallback=self.mapping_
+            )
         return self
 
     def predict(self, X: pd.DataFrame) -> RegimePrediction:

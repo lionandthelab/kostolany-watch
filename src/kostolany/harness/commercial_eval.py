@@ -10,8 +10,9 @@ import json
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from math import ceil
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 from scipy.stats import norm
@@ -23,6 +24,27 @@ from kostolany.models import KostolanyGBM
 from kostolany.tsfm import LocalTSFM, TSFMEnsemble
 
 HORIZON = 63
+
+# Bump whenever a threshold or a gate key changes so an old artifact can never
+# be compared against a new bar without noticing.
+GATE_SPEC_VERSION = "commercial-gate-v6"
+
+GATE_THRESHOLDS: dict[str, float] = {
+    "min_markets": 3.0,
+    "median_direction_hit": 0.52,
+    "market_floor": 0.48,
+    # Beating the trailing-drift baseline in >= this many markets.
+    "baseline_slack": 0.01,
+    "baseline_min_markets": 2.0,
+    # A binary sign task's trivial predictor is the better constant call,
+    # i.e. max(always_up, 1 - always_up). Slack covers bootstrap jitter only.
+    "trivial_slack": 0.01,
+    # Block-bootstrap lower bound must at least exclude a coin flip.
+    "direction_ci_low": 0.50,
+    "median_mae_ratio": 1.02,
+    "interval_coverage_min": 0.65,
+    "interval_coverage_max": 0.95,
+}
 
 
 @dataclass
@@ -48,14 +70,38 @@ class MarketScore:
     elapsed_seconds: float
 
 
+def bootstrap_block_for_stride(origin_stride: int) -> int:
+    """Block length that spans the overlap induced by ``origin_stride``.
+
+    Consecutive origins share ``HORIZON - origin_stride`` days of target, so a
+    fixed ``block=3`` silently under-blocks whenever the stride shrinks. Three
+    overlap lengths is the usual moving-block rule of thumb.
+    """
+    stride = max(1, int(origin_stride))
+    return int(max(3, ceil(HORIZON / stride) * 3))
+
+
 def _block_bootstrap_hit_ci(
     hit: np.ndarray,
     *,
-    block: int = 3,
+    origin_stride: int | None = None,
+    block: int | None = None,
     n_boot: int = 1200,
     seed: int = 42,
 ) -> tuple[float, float]:
-    """Moving-block bootstrap CI for overlapping 63d/21d origins."""
+    """Moving-block bootstrap CI for overlapping 63d origins.
+
+    Pass ``origin_stride`` so the block length cannot drift out of sync with the
+    sampling grid; ``block`` stays available for callers on a non-overlapping
+    grid, but supplying both inconsistently is an error rather than a silent win.
+    """
+    derived = bootstrap_block_for_stride(origin_stride) if origin_stride is not None else None
+    if block is None:
+        block = derived if derived is not None else 3
+    elif derived is not None and block != derived:
+        raise ValueError(
+            f"block={block} contradicts origin_stride={origin_stride} (expected {derived})"
+        )
     if len(hit) < 8:
         return 0.0, 1.0
     rng = np.random.default_rng(seed)
@@ -164,7 +210,7 @@ def evaluate_flow_market(
     hits = (np.sign(p) == np.sign(r)).astype(float)
     base_hits = (np.sign(base) == np.sign(r)).astype(float)
     always_up = float(np.mean(r > 0))
-    ci_low, ci_high = _block_bootstrap_hit_ci(hits)
+    ci_low, ci_high = _block_bootstrap_hit_ci(hits, origin_stride=origin_stride)
     mae = float(np.mean(np.abs(p - r)))
     baseline_mae = float(np.mean(np.abs(base - r)))
 
@@ -245,6 +291,118 @@ def evaluate_regime_candidates(
     return scores
 
 
+def _finite_or_none(value: float) -> float | None:
+    return float(value) if np.isfinite(value) else None
+
+
+def _regime_macro_f1(regime: Mapping[str, Any], key: str) -> float:
+    """NaN, never 0.0, when a candidate is missing.
+
+    ``or 0.0`` turned an absent regime block into a floor of zero, so a run that
+    never scored the regime head passed the non-regression gate trivially.
+    """
+    block = regime.get(key)
+    if not isinstance(block, Mapping):
+        return float("nan")
+    value = block.get("regime_macro_f1")
+    return float(value) if value is not None else float("nan")
+
+
+def build_gates(
+    market_rows: list[dict[str, Any]],
+    regime: Mapping[str, Any],
+    *,
+    include_regime: bool,
+    errors: Mapping[str, str] | None = None,
+) -> tuple[dict[str, bool], dict[str, Any]]:
+    """Promotion gates + the inputs they were evaluated on.
+
+    Pure function so the bar can be unit-tested and so a stored artifact can be
+    re-scored against a later spec.
+    """
+    th = GATE_THRESHOLDS
+    errors = errors or {}
+    hits = [float(row["direction_hit"]) for row in market_rows]
+    ratios = [float(row["mae_ratio"]) for row in market_rows]
+    coverages = [float(row["interval_coverage"]) for row in market_rows]
+    ci_lows = [float(row["direction_ci_low"]) for row in market_rows]
+    # Trivial predictor for a sign task: always call the majority direction.
+    trivial = [
+        max(float(row["always_up_hit"]), 1.0 - float(row["always_up_hit"]))
+        for row in market_rows
+    ]
+    direction_skill = [hit - base for hit, base in zip(hits, trivial)]
+
+    raw_f1 = _regime_macro_f1(regime, "gbm_unsmoothed")
+    temporal_f1 = _regime_macro_f1(regime, "gbm_temporal")
+    candidate_f1 = _regime_macro_f1(regime, "ensemble_direct")
+    # No * 0.98 slack: "non-regression" has to mean the candidate did not regress.
+    finite_floors = [f for f in (raw_f1, temporal_f1) if np.isfinite(f)]
+    regime_floor = max(finite_floors) if finite_floors else float("nan")
+
+    gates = {
+        "all_markets_completed": bool(
+            len(market_rows) >= int(th["min_markets"]) and not errors
+        ),
+        "median_direction_hit": bool(
+            hits and float(np.median(hits)) >= th["median_direction_hit"]
+        ),
+        "market_floor": bool(hits and min(hits) >= th["market_floor"]),
+        "direction_skill_vs_baseline": bool(
+            market_rows
+            and sum(
+                float(row["direction_hit"]) >= float(row["baseline_hit"]) - th["baseline_slack"]
+                for row in market_rows
+            )
+            >= int(th["baseline_min_markets"])
+        ),
+        # Every market must beat the better constant call. This is the gate that
+        # was deleted after it failed; it is the only one that measures skill.
+        "direction_skill_vs_trivial": bool(
+            market_rows and all(s >= -th["trivial_slack"] for s in direction_skill)
+        ),
+        # The point estimate is worthless without its lower bound.
+        "direction_ci_low_excludes_chance": bool(
+            ci_lows and min(ci_lows) >= th["direction_ci_low"]
+        ),
+        "median_mae_ratio": bool(ratios and float(np.median(ratios)) <= th["median_mae_ratio"]),
+        "interval_coverage": bool(
+            coverages
+            and all(
+                th["interval_coverage_min"] <= coverage <= th["interval_coverage_max"]
+                for coverage in coverages
+            )
+        ),
+        # Skipping the regime eval is a failure, not a vacuous pass.
+        "regime_evaluated": bool(include_regime and np.isfinite(candidate_f1)),
+        "regime_macro_f1_non_regression": bool(
+            include_regime
+            and np.isfinite(candidate_f1)
+            and np.isfinite(regime_floor)
+            and candidate_f1 >= regime_floor
+        ),
+    }
+    inputs = {
+        "median_direction_hit": float(np.median(hits)) if hits else None,
+        "min_direction_hit": float(min(hits)) if hits else None,
+        "min_direction_ci_low": float(min(ci_lows)) if ci_lows else None,
+        "median_mae_ratio": float(np.median(ratios)) if ratios else None,
+        "trivial_direction_hit": {
+            str(row["symbol"]): base for row, base in zip(market_rows, trivial)
+        },
+        "direction_skill_vs_trivial": {
+            str(row["symbol"]): skill for row, skill in zip(market_rows, direction_skill)
+        },
+        # None (not 0.0) when absent so the artifact stays honest and JSON-valid.
+        "regime_raw_f1": _finite_or_none(raw_f1),
+        "regime_temporal_f1": _finite_or_none(temporal_f1),
+        "regime_candidate_f1": _finite_or_none(candidate_f1),
+        "regime_floor": _finite_or_none(regime_floor),
+        "include_regime": bool(include_regime),
+    }
+    return gates, inputs
+
+
 def run_commercial_evaluation(
     symbols: Iterable[str],
     *,
@@ -277,46 +435,14 @@ def run_commercial_evaluation(
         evaluate_regime_candidates("KS11", start=start) if include_regime else {}
     )
     market_rows = list(markets.values())
+    gates, gate_inputs = build_gates(
+        market_rows, regime, include_regime=include_regime, errors=errors
+    )
+    passed = all(gates.values())
+
     hits = [float(row["direction_hit"]) for row in market_rows]
     ratios = [float(row["mae_ratio"]) for row in market_rows]
-    coverages = [float(row["interval_coverage"]) for row in market_rows]
-    direction_skill = [float(row["skill_vs_always_up"]) for row in market_rows]
-    raw_f1 = float(
-        (regime.get("gbm_unsmoothed") or {}).get("regime_macro_f1") or 0.0
-    )
-    candidate_f1 = float(
-        (regime.get("ensemble_direct") or {}).get("regime_macro_f1") or 0.0
-    )
-    temporal_f1 = float(
-        (regime.get("gbm_temporal") or {}).get("regime_macro_f1") or 0.0
-    )
-    # Prefer non-regression vs temporally calibrated GBM (fairer than raw).
-    regime_floor = max(raw_f1 * 0.98, temporal_f1 * 0.98)
-
-    gates = {
-        "all_markets_completed": len(market_rows) >= 3 and not errors,
-        "median_direction_hit": bool(hits and np.median(hits) >= 0.52),
-        "market_floor": bool(hits and min(hits) >= 0.48),
-        "direction_skill_vs_baseline": bool(
-            market_rows
-            and sum(
-                float(row["direction_hit"]) >= float(row["baseline_hit"]) - 0.01
-                for row in market_rows
-            )
-            >= 2
-        ),
-        # Always-up is reported but not a hard gate: long equity bull windows
-        # push the bar above 0.75, which is not an actionable product KPI.
-        "median_mae_ratio": bool(ratios and np.median(ratios) <= 1.02),
-        "interval_coverage": bool(
-            coverages
-            and all(0.65 <= coverage <= 0.95 for coverage in coverages)
-        ),
-        "regime_macro_f1_non_regression": bool(
-            not include_regime or candidate_f1 >= regime_floor
-        ),
-    }
-    passed = all(gates.values())
+    candidate_f1 = gate_inputs["regime_candidate_f1"] or 0.0
     score = 0.0
     if hits and ratios:
         score = float(
@@ -337,6 +463,10 @@ def run_commercial_evaluation(
         "markets": markets,
         "regime": regime,
         "gates": gates,
+        "gates_failed": [name for name, ok in gates.items() if not ok],
+        "gate_spec_version": GATE_SPEC_VERSION,
+        "gate_thresholds": dict(GATE_THRESHOLDS),
+        "gate_inputs": gate_inputs,
         "errors": errors,
         "constraints": {
             "gold_used_for_training": False,

@@ -117,7 +117,24 @@ class CombinatorialPurgedCV:
 
 
 class PurgedWalkForward:
-    """Expanding or rolling walk-forward with purge + embargo + optional lag."""
+    """Expanding or rolling walk-forward with purge + embargo.
+
+    ``anchor`` decides where the ``n_splits`` contiguous test blocks sit on the
+    timeline:
+
+    * ``"end"`` (default) — the LAST block ends on the final row and the earlier
+      blocks stack backwards from it, so the most recent history is always the
+      part that gets scored.
+    * ``"start"`` — blocks march forward from ``min_train_size``. This is the
+      historical behaviour and is kept only for backward compatibility: with the
+      regime-eval parameters (``n_splits=6, test_size=63, min_train_size=252``)
+      it tests positions 252..630 of a ~3,988-row series — 9.5% of the timeline,
+      all of it inside 2011-2012 — while the model trains on 242 rows.
+
+    Both anchors keep the same purge/embargo geometry, so ``CVFold`` is
+    unchanged: train always stops ``purge_horizon + embargo`` bars before the
+    test block starts.
+    """
 
     def __init__(
         self,
@@ -127,25 +144,44 @@ class PurgedWalkForward:
         purge_horizon: int = 5,
         embargo: int = 5,
         expanding: bool = True,
+        anchor: str = "end",
     ) -> None:
+        if anchor not in ("end", "start"):
+            raise ValueError("anchor must be 'end' or 'start'")
         self.n_splits = n_splits
         self.min_train_size = min_train_size
         self.test_size = test_size
         self.purge_horizon = purge_horizon
         self.embargo = embargo
         self.expanding = expanding
+        self.anchor = anchor
+
+    def _test_starts(self, n: int, test_size: int, min_train: int) -> list[int]:
+        """Start positions of the test blocks, ascending."""
+        starts: list[int] = []
+        if self.anchor == "end":
+            # Walk backwards from the final row so the newest block ends at n.
+            for k in range(self.n_splits):
+                start = n - (k + 1) * test_size
+                if start < min_train:
+                    break
+                starts.append(start)
+            starts.reverse()
+        else:
+            cursor = min_train
+            while len(starts) < self.n_splits and cursor + test_size <= n:
+                starts.append(cursor)
+                cursor += test_size
+        return starts
 
     def split(self, X: pd.DataFrame | np.ndarray) -> Iterator[CVFold]:
         n = len(X)
         test_size = self.test_size or max(20, n // (self.n_splits + 1))
         min_train = self.min_train_size or max(60, test_size)
 
-        # Place fold boundaries from the end backwards so latest data is tested
         fold_id = 0
-        cursor = min_train
-        while fold_id < self.n_splits and cursor + test_size <= n:
-            test_start = cursor
-            test_end = min(n, cursor + test_size)
+        for test_start in self._test_starts(n, test_size, min_train):
+            test_end = min(n, test_start + test_size)
 
             if self.expanding:
                 train_start = 0
@@ -168,7 +204,6 @@ class PurgedWalkForward:
                     embargo_count=self.embargo,
                 )
                 fold_id += 1
-            cursor = test_end
 
         if fold_id == 0:
             raise ValueError("Not enough data for walk-forward splits")

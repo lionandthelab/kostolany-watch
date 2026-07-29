@@ -55,7 +55,11 @@ class Scorecard:
     regime_macro_f1: float | None = None
     regime_brier: float | None = None
     regime_ece: float | None = None
-    transition_hit: float | None = None
+    regime_qwk: float | None = None
+    regime_baselines: dict[str, float] = field(default_factory=dict)
+    transition_hit: float | None = None  # recall only — kept for continuity
+    transition_precision: float | None = None
+    transition_f1: float | None = None
     details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -209,22 +213,42 @@ def evaluate_regime_model(
     factory: FitFactory,
     *,
     n_splits: int = 6,
-    test_size: int = 63,
+    test_size: int | None = None,
+    min_train_size: int = 1260,
+    anchor: str = "end",
     name: str = "model",
 ) -> Scorecard:
+    """Walk-forward regime scoring against gold labels (scoring only, never fit).
+
+    Defaults changed 2026-07-29: ``min_train_size`` 252 -> 1260 (a 6-state HMM
+    has 299 free parameters; 242 training rows is 1.24 params per observation)
+    and the splitter is anchored at the end. ``test_size=None`` spreads the
+    ``n_splits`` blocks over everything after the warm-up instead of scoring 378
+    rows (9.5% of the timeline, all of it 2011-2012) at the same refit cost.
+    """
+    n = len(X)
+    if test_size is None:
+        test_size = max(63, (n - min_train_size) // max(1, n_splits))
+    if n <= min_train_size + test_size:
+        raise ValueError(
+            f"{name}: regime eval needs > {min_train_size + test_size} rows (got {n})"
+        )
     splitter = PurgedWalkForward(
         n_splits=n_splits,
         test_size=test_size,
         purge_horizon=5,
         embargo=5,
         expanding=True,
-        min_train_size=252,
+        min_train_size=min_train_size,
+        anchor=anchor,
     )
     preds: list[pd.Series] = []
     probas: list[pd.DataFrame] = []
     golds: list[pd.Series] = []
     transition_detected = 0
     transition_total = 0
+    transition_matched = 0
+    transition_predicted = 0
     for fold in splitter.split(X):
         Xtr, ytr = X.iloc[fold.train_idx], y_weak.iloc[fold.train_idx]
         Xte = X.iloc[fold.test_idx]
@@ -244,12 +268,42 @@ def evaluate_regime_model(
         )
         transition_detected += int(fold_report.transition.n_detected)
         transition_total += int(fold_report.transition.n_true_transitions)
+        transition_matched += int(fold_report.transition.matched_within_window)
+        transition_predicted += int(fold_report.transition.n_pred_transitions)
     if not preds:
         return Scorecard(name=name)
     y_pred = pd.concat(preds)
     y_true = pd.concat(golds)
     proba_all = pd.concat(probas) if probas else None
     report = evaluate_regimes(y_true, y_pred, proba_all)
+
+    # Transition precision/recall are pooled over folds (fold boundaries would
+    # otherwise register as spurious flips).
+    precision = transition_matched / transition_predicted if transition_predicted else None
+    recall = transition_detected / transition_total if transition_total else None
+    matched_recall = transition_matched / transition_total if transition_total else None
+    f1 = None
+    if precision is not None and matched_recall is not None and (precision + matched_recall) > 0:
+        f1 = 2.0 * precision * matched_recall / (precision + matched_recall)
+
+    index = y_pred.index
+    coverage = {
+        "n_oos": int(len(y_pred)),
+        "oos_fraction": float(len(y_pred) / max(1, n)),
+        "oos_start": str(index.min()),
+        "oos_end": str(index.max()),
+        "n_splits": int(n_splits),
+        "test_size": int(test_size),
+        "min_train_size": int(min_train_size),
+        "anchor": anchor,
+    }
+    print(
+        f"[regime-eval] {name}: OOS {coverage['n_oos']} rows "
+        f"({coverage['oos_fraction']:.1%} of {n}) "
+        f"{coverage['oos_start'][:10]} -> {coverage['oos_end'][:10]}",
+        flush=True,
+    )
+
     return Scorecard(
         name=name,
         n_folds=len(preds),
@@ -259,12 +313,12 @@ def evaluate_regime_model(
         regime_macro_f1=float(report.macro_f1),
         regime_brier=float(report.calibration.brier),
         regime_ece=float(report.calibration.ece),
-        transition_hit=(
-            float(transition_detected / transition_total)
-            if transition_total
-            else None
-        ),
-        details={"n_oos": int(len(y_pred))},
+        regime_qwk=float(report.quadratic_weighted_kappa),
+        regime_baselines=dict(report.baselines),
+        transition_hit=float(recall) if recall is not None else None,
+        transition_precision=float(precision) if precision is not None else None,
+        transition_f1=float(f1) if f1 is not None else None,
+        details=coverage,
     )
 
 
@@ -452,7 +506,9 @@ def run_experiment(
         )
         results["regime"][name] = sc.to_dict()
         print(
-            f"  acc={sc.regime_accuracy:.3f}  f1={sc.regime_macro_f1:.3f}  folds={sc.n_folds}",
+            f"  acc={_fmt(sc.regime_accuracy)} (majority "
+            f"{_fmt((sc.regime_baselines or {}).get('majority'))})  "
+            f"f1={_fmt(sc.regime_macro_f1)}  qwk={_fmt(sc.regime_qwk)}  folds={sc.n_folds}",
             flush=True,
         )
 
@@ -580,6 +636,12 @@ def run_experiment(
     return results
 
 
+def _fmt(value: Any, spec: str = ".3f") -> str:
+    if value is None or (isinstance(value, float) and not np.isfinite(value)):
+        return "n/a"
+    return format(value, spec)
+
+
 def summarize(results: dict[str, Any]) -> str:
     lines = []
     sym = results["symbol"]
@@ -590,11 +652,21 @@ def summarize(results: dict[str, Any]) -> str:
     lines.append("")
     lines.append("## Regime classification (gold OOS)")
     for name, sc in results["regime"].items():
+        base = sc.get("regime_baselines") or {}
+        det = sc.get("details") or {}
         lines.append(
-            f"- **{name}**: accuracy={sc['regime_accuracy']:.3f}, macro_f1={sc['regime_macro_f1']:.3f}"
+            f"- **{name}**: accuracy={_fmt(sc.get('regime_accuracy'))} "
+            f"(majority {_fmt(base.get('majority'))}), "
+            f"macro_f1={_fmt(sc.get('regime_macro_f1'))}, "
+            f"qwk={_fmt(sc.get('regime_qwk'))}, "
+            f"brier={_fmt(sc.get('regime_brier'), '.4f')} "
+            f"(constant prior {_fmt(base.get('constant_prior_brier'), '.4f')}), "
+            f"adjacent={_fmt(sc.get('regime_adjacent_accuracy'))} "
+            f"(best constant {_fmt(base.get('best_constant_adjacent'))}), "
+            f"oos={det.get('n_oos')} rows {str(det.get('oos_start'))[:10]}..{str(det.get('oos_end'))[:10]}"
         )
     br = results.get("best_regime", {})
-    lines.append(f"- winner: **{br.get('name')}** (acc={br.get('regime_accuracy'):.3f})")
+    lines.append(f"- winner: **{br.get('name')}** (acc={_fmt(br.get('regime_accuracy'))})")
     lines.append("")
     lines.append("## 3-month direction forecast")
     base = results["consensus"]["baseline"]

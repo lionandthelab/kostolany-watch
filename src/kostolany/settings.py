@@ -20,7 +20,9 @@ class Settings(BaseSettings):
     fred_api_key: str | None = Field(default=None, validation_alias="FRED_API_KEY")
     cache_dir: str = Field(default="artifacts/cache", validation_alias="CACHE_DIR")
     data_start: str = Field(default="2010-01-01", validation_alias="DATA_START")
-    tsfm_backend: str = Field(default="local", validation_alias="KOSTOLANY_TSFM_BACKEND")
+    # `tsfm_backend` was removed with ChronosTSFM: `build_tsfm()` was its only
+    # consumer and now returns LocalTSFM unconditionally. `extra="ignore"` above
+    # means a stale KOSTOLANY_TSFM_BACKEND in someone's .env is still harmless.
     http_timeout: float = 30.0
 
     @property

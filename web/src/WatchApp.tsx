@@ -17,6 +17,7 @@ import {
   startWatchWarmup,
   type ReplayFrame,
   type Snapshot,
+  type RegimeCalibration,
   type WatchBundle,
 } from "./api";
 
@@ -30,6 +31,18 @@ const MODEL_IDS = TOP_MODELS.map((m) => m.id);
 
 function frameProba(f: ReplayFrame): Record<string, number> {
   return f.probabilities;
+}
+
+/**
+ * The served posterior is measurably uncalibrated (ECE 0.42-0.50 over 2,696 OOS
+ * bars), so rendering `max(p) * 100` as a percentage overstates what the model
+ * knows — the deployed HMM arm routinely emitted 100%. Collapse it to a coarse
+ * ordinal band and let the measured hit rate carry the actual accuracy claim.
+ */
+function confidenceBand(confidence: number): string {
+  if (confidence >= 0.75) return "높음";
+  if (confidence >= 0.45) return "보통";
+  return "낮음";
 }
 
 function formatKst(iso?: string | null): string {
@@ -64,6 +77,7 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
     WatchBundle,
     "cached" | "stale" | "refreshing" | "cached_at" | "expires_at" | "can_refresh" | "refresh_available_at"
   > | null>(null);
+  const [calibration, setCalibration] = useState<RegimeCalibration | null>(null);
   const loadGen = useRef(0);
   const memRef = useRef<Map<string, WatchBundle>>(new Map());
   const pollRef = useRef<number | null>(null);
@@ -91,6 +105,7 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
       can_refresh: bundle.can_refresh,
       refresh_available_at: bundle.refresh_available_at,
     });
+    setCalibration(bundle.calibration ?? null);
     const ranked = TOP_MODELS.map((m) => ({
       id: m.id,
       conf: nextSnaps[m.id]?.confidence ?? 0,
@@ -453,8 +468,8 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
                   <>
                     <strong style={{ color: guide.color }}>{regime}</strong>
                     <span className="regime-brief-name">{guide.name}</span>
-                    <span className="status">
-                      {(confidence * 100).toFixed(0)}% · {asof}
+                    <span className="status" title={calibration?.note_ko}>
+                      확신도 {confidenceBand(confidence)} · {asof}
                       {!atLive && focusFrame ? " · 리플레이" : ""}
                     </span>
                   </>
@@ -683,6 +698,22 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
             </div>
           </section>
 
+          {calibration && (
+            <p className="disclaimer">
+              측정 성적({calibration.window}, {calibration.n_oos_bars.toLocaleString()}
+              거래일 워크포워드): 6국면 정확 적중{" "}
+              {(
+                (calibration.measured[focus]?.exact6 ??
+                  calibration.constant_prior_baseline.exact6) * 100
+              ).toFixed(0)}
+              % (무작위 {(calibration.exact6_chance * 100).toFixed(0)}%) · 인접 국면 포함{" "}
+              {(
+                (calibration.measured[focus]?.adjacent ??
+                  calibration.constant_prior_baseline.adjacent) * 100
+              ).toFixed(0)}
+              % (구조적 하한 {(calibration.adjacent_floor * 100).toFixed(0)}%). {calibration.note_ko}
+            </p>
+          )}
           <p className="disclaimer">{focusSnap.disclaimer}</p>
         </>
       )}

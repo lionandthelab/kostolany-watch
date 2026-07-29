@@ -1,10 +1,7 @@
 """TSFM-style trajectory head + v3 ensemble (HMM + GBM + TSFM).
 
-Default backend is a causal local PatchTST-lite (numpy/sklearn) so the stack
+The only backend is a causal local PatchTST-lite (numpy/LightGBM) so the stack
 runs offline without downloading multi-GB foundation checkpoints.
-
-Optional: set KOSTOLANY_TSFM_BACKEND=chronos and install chronos-forecasting
-to swap in a HuggingFace Chronos zero-shot forecaster for the trajectory arm.
 """
 
 from __future__ import annotations
@@ -21,7 +18,6 @@ from kostolany.models import (
     RegimePrediction,
     causal_cycle_filter,
 )
-from kostolany.settings import get_settings
 
 
 @dataclass
@@ -48,8 +44,13 @@ def _patch_matrix(x: np.ndarray, patch: int, stride: int) -> np.ndarray:
             window = np.vstack([pad, x[: t + 1]])
         else:
             window = x[start : t + 1]
-        # downsample by stride inside patch
-        rows.append(window[::stride].reshape(-1))
+        # Downsample by stride *anchored at t*, not at the oldest bar. Plain
+        # ``window[::stride]`` took offsets t-47, t-43, ..., t-3 for the default
+        # patch=48/stride=4, so the forecast origin and the two bars before it
+        # never entered the design and 330 of 342 columns were >=3 days stale.
+        # Same row count (ceil(patch/stride)) and same left padding.
+        offset = (len(window) - 1) % stride
+        rows.append(window[offset::stride].reshape(-1))
     # equalize length
     maxlen = max(len(r) for r in rows)
     out = np.zeros((n, maxlen), dtype=float)
@@ -308,16 +309,30 @@ class LocalTSFM:
             if h == max_h:
                 scaled = self.long_magnitude_scale_ * log_hat
                 if direction_proba is not None and self.direction_blend > 0:
-                    # Soft expected log-return from P(up), shrunk toward 0.5
-                    # to avoid chronic bull bias in long equity bull markets.
+                    # The classifier owns the sign, the regressor owns the
+                    # magnitude — same split as PooledDirectModel.predict
+                    # (harness/pooled_forecast.py:252), which already serves
+                    # 20 of 27 sectors. This makes ``direction_hit`` exactly
+                    # attributable to the classifier.
+                    #
+                    # DO NOT go back to a convex blend of soft-EV and the
+                    # regressor. That form was
+                    #   log_hat = |scaled| * (2*s*b*(p_up-0.5) + (1-b)*sign(scaled))
+                    # with s = shrink, b = direction_blend, and it can only flip
+                    # the sign when  b > 1 / (1 + s).  Shipped values s=0.65,
+                    # b=0.55 give a bound of 0.606 > 0.55, so the multiplier
+                    # bottomed out at +0.0925 and P(up) contributed exactly zero
+                    # to direction_hit no matter how confident it was.
                     p_up = direction_proba.to_numpy(dtype=float)
-                    p_shrunk = 0.5 + 0.65 * (p_up - 0.5)
-                    soft_ev = (2.0 * p_shrunk - 1.0) * np.abs(scaled)
-                    log_hat = (
-                        self.direction_blend * soft_ev
-                        + (1.0 - self.direction_blend) * scaled
+                    # Conviction taper in [1 - blend, 1]: a coin-flip P(up)
+                    # shrinks the forecast toward 0 instead of asserting a side.
+                    conviction = (1.0 - self.direction_blend) + (
+                        self.direction_blend * np.abs(2.0 * p_up - 1.0)
                     )
+                    log_hat = np.sign(p_up - 0.5) * conviction * np.abs(scaled)
                 else:
+                    # direction_blend == 0 keeps the regressor's own sign — the
+                    # control arm for scoring the classifier's contribution.
                     log_hat = scaled
             raw_log_hat[h] = log_hat.copy()
             ret_hat[f"h{h}"] = np.expm1(np.clip(log_hat, -1.2, 1.5))
@@ -432,63 +447,14 @@ class LocalTSFM:
         )
 
 
-class ChronosTSFM:
-    """Optional Chronos backend — degrades to LocalTSFM if import/model fails."""
+def build_tsfm() -> LocalTSFM:
+    """Trajectory arm factory.
 
-    def __init__(self) -> None:
-        self._local = LocalTSFM()
-        self._pipe = None
-
-    def fit(self, X: pd.DataFrame, y: pd.Series | None = None) -> "ChronosTSFM":
-        self._local.fit(X, y)
-        try:
-            from chronos import ChronosPipeline  # type: ignore
-
-            self._pipe = ChronosPipeline.from_pretrained(
-                "amazon/chronos-t5-tiny",
-                device_map="cpu",
-            )
-        except Exception:  # noqa: BLE001
-            self._pipe = None
-        return self
-
-    def predict_trajectory(self, X: pd.DataFrame) -> TrajectoryForecast:
-        base = self._local.predict_trajectory(X)
-        if self._pipe is None:
-            return base
-        # Use Chronos only on the last window to adjust transition score (cost control)
-        try:
-            import torch
-
-            series = X.iloc[:, 0].dropna().astype(float).tail(128).to_numpy()
-            ctx = torch.tensor(series, dtype=torch.float32)
-            forecast = self._pipe.predict(ctx, prediction_length=20)
-            # forecast shape ~ (num_samples, pred_len)
-            med = forecast.median(dim=0).values.numpy()
-            slope = float(med[-1] - med[0])
-            # blend transition score at the end
-            adj = base.transition_score.copy()
-            adj.iloc[-1] = float(np.clip(abs(slope) * 5 + adj.iloc[-1], 0, 1))
-            return TrajectoryForecast(
-                index=base.index,
-                ret_hat=base.ret_hat,
-                vol_hat=base.vol_hat,
-                embed=base.embed,
-                transition_score=adj,
-                quantiles=base.quantiles,
-                direction_proba=base.direction_proba,
-            )
-        except Exception:  # noqa: BLE001
-            return base
-
-    def regime_proba_from_trajectory(self, traj: TrajectoryForecast) -> pd.DataFrame:
-        return self._local.regime_proba_from_trajectory(traj)
-
-
-def build_tsfm():
-    backend = get_settings().tsfm_backend.lower()
-    if backend == "chronos":
-        return ChronosTSFM()
+    The former ``chronos`` backend was removed: it fed ``X.iloc[:, 0]`` (raw
+    ``log_ret_1``, effectively white noise) to a zero-shot forecaster and used
+    the result only to nudge ``transition_score.iloc[-1]``, for >=200MB of image
+    weight. LocalTSFM is the only backend.
+    """
     return LocalTSFM()
 
 
