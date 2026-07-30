@@ -18,7 +18,9 @@ REFRESH_COOLDOWN_HOURS = 1.0
 # serving the previous model's answers for up to WATCH_TTL_HOURS.
 #   v2: bijective HMM state->regime mapping (no structurally-zero regimes),
 #       corrected weak-label drawdown terms, `calibration` block in the payload.
-WATCH_PAYLOAD_VERSION = "v2"
+# v3: conviction system — vote block on momo snapshots + confidence_view in
+# the calibration payload. Old blobs lack both and must not be served.
+WATCH_PAYLOAD_VERSION = "v3"
 
 
 def _path(symbol: str, models: str, limit: int, stride: int) -> Path:

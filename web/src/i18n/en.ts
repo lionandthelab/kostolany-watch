@@ -151,6 +151,13 @@ export const en: Messages = {
     },
   },
   models: {
+    momo: {
+      label: "Trend Rule",
+      short: "TR",
+      trait: "No-learning baseline",
+      blurb:
+        "Majority vote of 8 trend rules plus a turn clock. Not a fitted AI — it measured higher up/down accuracy (~70%) than all three AI heads, so it is the default. Displayed probability is pinned to measured accuracy.",
+    },
     hmm: {
       label: "Rhythm",
       short: "R",
@@ -169,5 +176,66 @@ export const en: Messages = {
       trait: "Surfer",
       blurb: "Reads the whole chart swell and gauges where the next bend may form.",
     },
+  },
+  conviction: {
+    sideWord: { up: "up", down: "down" },
+    badge: {
+      unanimous: "8 of 8 trend signals aligned {side} — unanimous",
+      strong: "7 of 8 trend signals aligned {side} — strong majority",
+      lean: "6 of 8 trend signals aligned {side} — majority",
+      mixed: "Signals mixed — split {a} to {b}",
+    },
+    directionAligned:
+      "Direction — of past days with a {tierName} {side} alignment, days that were actually a {side} leg: measured {p}",
+    directionMixed:
+      "Direction — measured hit rate on split-signal days: {p} · withholding judgement is also information",
+    tierName: { unanimous: "unanimous", strong: "strong-majority", lean: "majority" },
+    zoneLine:
+      "Position — near {regime} · days the true sector was within ±1 of the call: measured {p} (all trading days)",
+    tieNote: "A 4-4 tie resolves to the up leg by pre-registered rule",
+    detailTitle: "Details — claims ladder (all trading days)",
+    ladderDirection: "① Direction (up leg vs down leg): measured {p}",
+    ladderZone: "② Zone (call ±1 of 6 sectors): measured {p1} · ±2 (5 of 6) {p2}",
+    ladderExact:
+      "③ Exact sector (1 of 6): measured {p} · random guess is one in six · structural ceiling {ceiling}",
+    ladderExactWhy:
+      "Why 'exact sector' is low — sector boundaries are only fixed after the NEXT turning point, so exact-sector accuracy has a structural ceiling. The shown value is the unembellished measurement; low is the honest number.",
+    tierTableTitle: "Alignment tiers",
+    tierTableCols: { tier: "Alignment", side: "Direction hit (measured)", share: "Frequency" },
+    tierTableRows: {
+      unanimous: "Unanimous 8-0",
+      strong: "Strong 7-1",
+      lean: "Majority 6-2",
+      mixed: "Mixed 5-3·4-4",
+    },
+    tierTableShare: "{p} of days",
+    tierTableFooter: "{n} trading days · {legs} legs · walk-forward measurement",
+    ledgerTitle: "This call is not a black box — all 8 rules disclosed",
+    ledgerRules: {
+      ma20: "Close > 20-day MA",
+      ma40: "Close > 40-day MA",
+      ma60: "Close > 60-day MA",
+      ma100: "Close > 100-day MA",
+      ma200: "Close > 200-day MA",
+      ret10: "10-day return > 0",
+      ret20: "20-day return > 0",
+      ret60: "60-day return > 0",
+    },
+    ledgerFooter:
+      "Majority of 5 moving-average rules + 3 return-sign rules · zero fitted parameters · 4-4 ties resolve up",
+    methodTitle: "How were these numbers measured?",
+    methodLines: [
+      "Every % is a PAST frequency scored against gold labels on a walk-forward out-of-sample window. Not a future probability; no forecast of returns or price direction.",
+      "Basis: {n} trading days ({legs} legs) · source file: {source} (kept with the code)",
+      "Percentages are always floored, never rounded up.",
+      "Alignment tiers track DIRECTION accuracy only. Exact-sector accuracy is flat across tiers, so tiers apply to direction alone.",
+      "The headline call is not a fitted model. The maximum displayed probability is pinned to the measured exact-sector hit rate.",
+    ],
+    eggLegend:
+      "Dark arc = today's call range · light band = call ±1 sector · wash = the 3 {sideSectors} sectors, darkness shows alignment tier (not a number)",
+    unmeasured: "Hit rates are not shown for unmeasured markets",
+    aiRefTitle: "Reference: 3 AI cross-checks — consensus {code} · {k}/{total}",
+    aiRefNote:
+      "The default call is a majority vote of 8 pre-registered trend rules, not an AI. The AI views (HMM·GBM·TSFM) are for reference.",
   },
 };

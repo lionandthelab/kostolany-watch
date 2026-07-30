@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kostolany"
-version = "0.1.0"
+version = "0.2.0"
 description = "Kostolany egg regime detection engine with SOTA evaluation harness"
 readme = "README.md"
 requires-python = ">=3.11"

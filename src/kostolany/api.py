@@ -27,7 +27,7 @@ from kostolany.watch_cache import (
 
 MODEL_PATTERN = "^(hmm|gbm|ensemble|tsfm|ensemble_v3|momo)$"
 WATCH_MARKETS = ("^GSPC", "BTC-USD")
-WATCH_DEFAULT_MODELS = "hmm,gbm,tsfm"
+WATCH_DEFAULT_MODELS = "momo,hmm,gbm,tsfm"
 WATCH_DEFAULT_LIMIT = 360
 WATCH_DEFAULT_STRIDE = 2
 MAX_WATCH_QUEUE = max(6, 2 * len(WATCH_MARKETS))
@@ -68,6 +68,8 @@ class SnapshotResponse(BaseModel):
     disclaimer: str = DISCLAIMER_KO
     transition_score: float | None = None
     evidence: list[dict[str, Any]] | None = None
+    # momo head only: live 8-rule vote block (see engine._vote_block)
+    vote: dict[str, Any] | None = None
 
 
 class RegimeInfo(BaseModel):
@@ -132,7 +134,7 @@ def _build_watch_body(
     limit: int,
     stride: int,
 ) -> dict[str, Any]:
-    shared_ids = {"hmm", "gbm", "tsfm"}
+    shared_ids = {"momo", "hmm", "gbm", "tsfm"}
     if len(ids) > 1 and set(ids).issubset(shared_ids):
         engines = fit_analyst_bundle(symbol)
         analysts = []
@@ -467,7 +469,7 @@ def create_app() -> FastAPI:
     @app.get("/watch")
     def watch_bundle(
         symbol: str = Query("^GSPC"),
-        models: str = Query("hmm,gbm,tsfm", description="Comma-separated model ids"),
+        models: str = Query("momo,hmm,gbm,tsfm", description="Comma-separated model ids"),
         limit: int = Query(360, ge=20, le=5000),
         stride: int = Query(2, ge=1, le=20),
         refresh: bool = Query(False, description="Kick background refresh; return cache now"),
@@ -543,7 +545,7 @@ def create_app() -> FastAPI:
     @app.post("/watch/begin-refresh")
     def watch_begin_refresh(
         symbol: str = Query("^GSPC"),
-        models: str = Query("hmm,gbm,tsfm"),
+        models: str = Query("momo,hmm,gbm,tsfm"),
         limit: int = Query(360, ge=20, le=5000),
         stride: int = Query(2, ge=1, le=20),
     ) -> Any:
@@ -589,7 +591,7 @@ def create_app() -> FastAPI:
     @app.post("/watch/seal")
     def watch_seal(
         symbol: str = Query("^GSPC"),
-        models: str = Query("hmm,gbm,tsfm"),
+        models: str = Query("momo,hmm,gbm,tsfm"),
         limit: int = Query(360, ge=20, le=5000),
         stride: int = Query(2, ge=1, le=20),
         refreshed: bool = Query(False),

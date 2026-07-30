@@ -40,6 +40,10 @@ class EngineSnapshot:
     disclaimer: str
     transition_score: float | None = None
     evidence: list[dict[str, Any]] | None = None
+    # momo head only: live 8-rule vote block (deterministic counts; the UI's
+    # conviction tier keys off this). None for the AI heads and on the
+    # fail-closed path (vote side disagreeing with the served regime side).
+    vote: dict[str, Any] | None = None
 
 
 class KostolanyEngine:
@@ -50,6 +54,8 @@ class KostolanyEngine:
         self._last_features: pd.DataFrame | None = None
         self._last_ohlcv: pd.DataFrame | None = None
         self._last_pred: RegimePrediction | None = None
+        # momo only: per-rule vote frame aligned exactly like the prediction.
+        self._vote_rules: pd.DataFrame | None = None
 
     def _make_model(self) -> Any:
         if self.model_kind == "hmm":
@@ -87,6 +93,9 @@ class KostolanyEngine:
                     regimes=regimes.reindex(X.index).ffill().astype(int),
                     proba=proba.reindex(X.index).ffill(),
                 )
+                # Same alignment as the prediction, or the badge could
+                # contradict the call it annotates.
+                self._vote_rules = self.model.rule_votes(close).reindex(X.index).ffill()
             else:
                 self.model.fit(X, y)
                 self._last_pred = self.model.predict(X)
@@ -144,7 +153,41 @@ class KostolanyEngine:
             disclaimer=DISCLAIMER_KO,
             transition_score=tscore,
             evidence=evidence,
+            vote=self._vote_block(ts, regime_id),
         )
+
+    def _vote_block(self, ts: pd.Timestamp, regime_id: int) -> dict[str, Any] | None:
+        """Live 8-rule vote at ``ts`` — momo only, fail-closed on any mismatch.
+
+        If, after alignment, the vote's side disagrees with the served regime's
+        side, we ship NO vote block rather than a badge contradicting the call.
+        """
+        if self._vote_rules is None:
+            return None
+        try:
+            from kostolany.momo import RULE_IDS
+
+            row = self._vote_rules.loc[ts]
+            up = int(row.sum())
+            down = len(row) - up
+            side = "up" if up >= down else "down"  # 4-4 tie -> up (disclosed)
+            if (side == "up") != (regime_id < 3):
+                return None  # fail-closed; UI hides the badge
+            n = max(up, down)
+            tier = {8: "unanimous", 7: "strong", 6: "lean"}.get(n, "mixed")
+            return {
+                "up": up,
+                "down": down,
+                "split": f"{n}-{min(up, down)}",
+                "tier": tier,
+                "side": side,
+                "rules": [
+                    {"id": rid, "vote": "up" if bool(row[rid]) else "down"}
+                    for rid in RULE_IDS
+                ],
+            }
+        except Exception:  # noqa: BLE001 — the badge must never take the desk down
+            return None
 
     def history(self) -> pd.DataFrame:
         if self._last_pred is None or self._last_features is None:
@@ -298,6 +341,25 @@ def fit_analyst_bundle(
         view._last_pred = anchored
         view.anchor_lambda = lambdas[kind]
         out[kind] = view
+
+    # Default head (owner decision 2026-07-30): the zero-fitted-parameter
+    # momentum vote that won kill condition K2. Nearly free — prices only.
+    from kostolany.momo import MomoFloorHead
+
+    close = master._last_ohlcv["close"].dropna().astype(float).sort_index()
+    momo_model = MomoFloorHead().fit(close)
+    m_regimes, m_proba = momo_model.predict(close)
+    momo_view = KostolanyEngine(model_kind="momo")
+    momo_view.model = momo_model
+    momo_view.symbol = market.symbol
+    momo_view._last_features = master._last_features
+    momo_view._last_ohlcv = master._last_ohlcv
+    momo_view._last_pred = RegimePrediction(
+        regimes=m_regimes.reindex(X.index).ffill().astype(int),
+        proba=m_proba.reindex(X.index).ffill(),
+    )
+    momo_view._vote_rules = momo_model.rule_votes(close).reindex(X.index).ffill()
+    out["momo"] = momo_view
     return out
 
 
@@ -361,7 +423,9 @@ def _build_evidence(feat_row: pd.Series, gauges: dict) -> list[dict[str, Any]]:
             "label": "심리",
             "value": g["sentiment"],
             "level": _level(g["sentiment"]),
-            "detail": "위험선호·변동성 기반 심리",
+            # Honest label: this is a price/vol-derived proxy, not survey or
+            # flow data, and it is separate from the macro desk's F&G dial.
+            "detail": "변동성·수익률 파생 심리 프록시 (공포탐욕 다이얼과 별개)",
         },
         {
             "key": "position",

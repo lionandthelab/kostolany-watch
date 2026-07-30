@@ -113,5 +113,38 @@ export type Messages = {
     about: { title: string; description: string };
   };
   regimes: Record<"A1" | "A2" | "A3" | "B1" | "B2" | "B3", RegimeCopy>;
-  models: Record<"hmm" | "gbm" | "tsfm", ModelCopy>;
+  models: Record<"momo" | "hmm" | "gbm" | "tsfm", ModelCopy>;
+  /** Conviction system (spec: research/confidence_spec.md). NO hardcoded
+   * percentages — every number arrives through a {p}/{n} slot. */
+  conviction: {
+    sideWord: { up: string; down: string };
+    badge: { unanimous: string; strong: string; lean: string; mixed: string };
+    directionAligned: string; // {tierName} {side} {p}
+    directionMixed: string; // {p}
+    tierName: { unanimous: string; strong: string; lean: string };
+    zoneLine: string; // {regime} {p}
+    tieNote: string;
+    detailTitle: string;
+    ladderDirection: string; // {p}
+    ladderZone: string; // {p1} {p2}
+    ladderExact: string; // {p} {ceiling}
+    ladderExactWhy: string;
+    tierTableTitle: string;
+    tierTableCols: { tier: string; side: string; share: string };
+    tierTableRows: { unanimous: string; strong: string; lean: string; mixed: string };
+    tierTableShare: string; // {p}
+    tierTableFooter: string; // {n} {legs}
+    ledgerTitle: string;
+    ledgerRules: Record<
+      "ma20" | "ma40" | "ma60" | "ma100" | "ma200" | "ret10" | "ret20" | "ret60",
+      string
+    >;
+    ledgerFooter: string;
+    methodTitle: string;
+    methodLines: string[]; // {n}/{legs}/{source} slots in line 2
+    eggLegend: string; // {sideSectors}
+    unmeasured: string;
+    aiRefTitle: string; // {code} {k} {total}
+    aiRefNote: string;
+  };
 };

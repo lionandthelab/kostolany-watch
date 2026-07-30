@@ -4,7 +4,15 @@ import numpy as np
 import pandas as pd
 
 from kostolany.engine import KostolanyEngine
-from kostolany.momo import MEASURED_PANEL_SIDE_ACCURACY, MomoFloorHead
+from kostolany.momo import (
+    MEASURED_PANEL_SIDE_ACCURACY,
+    MEASURED_THIRD_GIVEN_SIDE,
+    MomoFloorHead,
+)
+
+# Measurement-matched top mass: side accuracy x third|side (~0.25) — the
+# largest displayed probability must equal what the head actually hits.
+TOP_MASS = MEASURED_PANEL_SIDE_ACCURACY * MEASURED_THIRD_GIVEN_SIDE
 
 
 def _px(n: int = 900, seed: int = 4) -> pd.Series:
@@ -20,10 +28,13 @@ def test_predict_shape_and_probability_contract():
     regimes, proba = head.predict(px)
     assert len(regimes) == len(px)
     assert np.allclose(proba.sum(axis=1), 1.0)
-    # The called class carries exactly measured accuracy + uniform share.
-    a = MEASURED_PANEL_SIDE_ACCURACY
     top = proba.to_numpy().max(axis=1)
-    assert np.allclose(top, a + (1 - a) / 6.0)
+    assert np.allclose(top, TOP_MASS, atol=1e-9)
+    # Called-side mass equals the measured side accuracy exactly.
+    up_mass = proba.to_numpy()[:, :3].sum(axis=1)
+    called_up = (regimes.to_numpy() < 3)
+    side_mass = np.where(called_up, up_mass, 1 - up_mass)
+    assert np.allclose(side_mass, MEASURED_PANEL_SIDE_ACCURACY, atol=1e-9)
 
 
 def test_causal_last_bar_perturbation():
@@ -42,7 +53,6 @@ def test_engine_serves_momo_kind():
     snap = eng.snapshot()
     assert snap.regime in {"A1", "A2", "A3", "B1", "B2", "B3"}
     assert abs(sum(snap.probabilities.values()) - 1.0) < 1e-6
-    # Confidence equals the measured-accuracy bound, not a model posterior.
-    a = MEASURED_PANEL_SIDE_ACCURACY
-    assert abs(snap.confidence - (a + (1 - a) / 6.0)) < 1e-6
+    # Confidence equals the measurement-matched top mass, not model confidence.
+    assert abs(snap.confidence - TOP_MASS) < 1e-6
     assert snap.disclaimer

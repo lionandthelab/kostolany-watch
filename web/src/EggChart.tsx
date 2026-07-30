@@ -3,8 +3,12 @@ import {
   EGG,
   REGIME_ANGLE,
   REGIME_GUIDE,
+  SIDE_SECTORS,
+  circularSpread,
   pointOnRim,
   rimFromProba,
+  sectorBandPath,
+  zoneSectors,
   type ModelId,
   type RegimeCode,
 } from "./eggGeometry";
@@ -30,6 +34,19 @@ type Props = {
   loading?: boolean;
   /** Soft status while remaining models compute */
   pendingLabel?: string | null;
+  /** Conviction layers (spec: research/confidence_spec.md §3.3). The side
+   * wash opacity is a DISCRETE tier ladder — an ordinal display constant,
+   * never a measured value (the legend says so). */
+  sideBand?: { side: "up" | "down"; tier: "unanimous" | "strong" | "lean" | "mixed" } | null;
+  /** Call ±1 sector zone band (fixed faint opacity). */
+  zoneCenter?: RegimeCode | null;
+};
+
+const SIDE_TIER_OPACITY: Record<string, number> = {
+  unanimous: 0.26,
+  strong: 0.18,
+  lean: 0.1,
+  mixed: 0,
 };
 
 function labelAnchor(angle: number): { dx: number; dy: number; anchor: "start" | "middle" | "end" } {
@@ -47,6 +64,8 @@ export function EggChart({
   onFocus,
   loading = false,
   pendingLabel = null,
+  sideBand = null,
+  zoneCenter = null,
 }: Props) {
   const t = useT();
   const marks = models.map((m, i) => {
@@ -54,8 +73,23 @@ export function EggChart({
     const fan = (i - (models.length - 1) / 2) * 0.045;
     const ang = (m.angleOverride ?? rim.angle) + fan;
     const p = pointOnRim(ang);
-    return { ...m, ...rim, angle: ang, x: p.x, y: p.y };
+    return { ...m, ...rim, angle: ang, x: p.x, y: p.y, spread: circularSpread(m.probabilities) };
   });
+  // S4: the focused head renders as an ARC on the rim — angular extent = the
+  // posterior's circular spread — so an uninformative bar reads as a wide arc,
+  // not a confident point. Perimeter invariant preserved (never the interior).
+  const focusMark = focusId ? marks.find((m) => m.id === focusId) : undefined;
+  const arcPath = (() => {
+    if (!focusMark) return null;
+    const n = 28;
+    const pts: string[] = [];
+    for (let i = 0; i <= n; i++) {
+      const a = focusMark.angle - focusMark.spread + (2 * focusMark.spread * i) / n;
+      const q = pointOnRim(a);
+      pts.push(`${i === 0 ? "M" : "L"}${q.x.toFixed(2)},${q.y.toFixed(2)}`);
+    }
+    return pts.join(" ");
+  })();
   const block = loading && marks.length === 0;
   const aria = block
     ? t.common.loading
@@ -152,6 +186,36 @@ export function EggChart({
           );
         })}
 
+        {sideBand && SIDE_TIER_OPACITY[sideBand.tier] > 0 && (
+          <path
+            d={sectorBandPath(SIDE_SECTORS[sideBand.side])}
+            fill="none"
+            stroke={sideBand.side === "up" ? "#3d9b6e" : "#c45c3e"}
+            strokeWidth="13"
+            strokeLinecap="round"
+            opacity={SIDE_TIER_OPACITY[sideBand.tier]}
+          />
+        )}
+        {zoneCenter && (
+          <path
+            d={sectorBandPath(zoneSectors(zoneCenter))}
+            fill="none"
+            stroke="rgba(26,31,28,0.8)"
+            strokeWidth="10"
+            strokeLinecap="round"
+            opacity="0.10"
+          />
+        )}
+        {arcPath && focusMark && (
+          <path
+            d={arcPath}
+            fill="none"
+            stroke={focusMark.color}
+            strokeWidth="7"
+            strokeLinecap="round"
+            opacity="0.30"
+          />
+        )}
         {marks.map((m) => {
           const focused = !focusId || focusId === m.id;
           const r = 7 + m.confidence * 5;
@@ -255,7 +319,7 @@ export function EggChart({
             fontSize="10"
             fill="rgba(26,31,28,0.55)"
           >
-            {`${t.models.hmm.label} · ${t.models.gbm.label} · ${t.models.tsfm.label}`}
+            {`${t.models.momo.label} · ${t.models.hmm.label} · ${t.models.gbm.label} · ${t.models.tsfm.label}`}
           </text>
         </g>
       )}

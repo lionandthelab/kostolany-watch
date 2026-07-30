@@ -1316,6 +1316,111 @@ button.btn-primary {
   border-color: rgba(26, 31, 28, 0.35);
 }
 
+/* Conviction system (spec: research/confidence_spec.md) */
+.conviction-card {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid rgba(26, 31, 28, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+}
+.align-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.align-badge-text {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+.vote-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.vote-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.vote-dot.is-up {
+  background: #3d9b6e;
+}
+.vote-dot.is-down {
+  background: #c45c3e;
+}
+.conviction-direction {
+  margin: 8px 0 2px;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+.conviction-zone {
+  margin: 2px 0 6px;
+  font-size: 0.88rem;
+  color: rgba(26, 31, 28, 0.75);
+}
+.conviction-expander {
+  margin-top: 6px;
+  font-size: 0.85rem;
+}
+.conviction-expander summary {
+  cursor: pointer;
+  color: rgba(26, 31, 28, 0.65);
+  font-weight: 600;
+}
+.claims-ladder,
+.method-lines {
+  margin: 8px 0 4px;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+}
+.rule-ledger {
+  margin: 8px 0 4px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 14px;
+}
+.rule-ledger li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rule-ledger li em {
+  font-style: normal;
+  font-weight: 700;
+}
+.rule-ledger li.is-up em {
+  color: #3d9b6e;
+}
+.rule-ledger li.is-down em {
+  color: #c45c3e;
+}
+.tier-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+.tier-table th,
+.tier-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid rgba(26, 31, 28, 0.08);
+}
+.tier-table tr.is-current {
+  background: rgba(138, 119, 74, 0.12);
+  font-weight: 700;
+}
+.egg-legend {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 0.8rem;
+}
+
 .flow-consensus.is-pending {
   border-color: rgba(26, 31, 28, 0.28);
   opacity: 0.8;

@@ -3,6 +3,7 @@ import { EggChart, type ModelMark } from "./EggChart";
 import {
   REGIME_GUIDE,
   TOP_MODELS,
+  pctFloor,
   rimFromProba,
   type ModelId,
   type RegimeCode,
@@ -78,6 +79,10 @@ function ExplainModal({
 
 type Props = { onMacro?: () => void; onAbout?: () => void; onNews?: () => void };
 
+function fill(tpl: string, slots: Record<string, string>): string {
+  return tpl.replace(/\{(\w+)\}/g, (_, k) => slots[k] ?? `{${k}}`);
+}
+
 export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
   const t = useT();
   const { formatDate } = useLocale();
@@ -86,7 +91,7 @@ export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [focus, setFocus] = useState<ModelId>("hmm");
+  const [focus, setFocus] = useState<ModelId>("momo");
   const [cacheMeta, setCacheMeta] = useState<Pick<
     WatchBundle,
     "cached" | "stale" | "refreshing" | "cached_at" | "expires_at" | "can_refresh" | "refresh_available_at"
@@ -114,11 +119,9 @@ export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
       refresh_available_at: bundle.refresh_available_at,
     });
     setCalibration(bundle.calibration ?? null);
-    const ranked = TOP_MODELS.map((m) => ({
-      id: m.id,
-      conf: nextSnaps[m.id]?.confidence ?? 0,
-    })).sort((a, b) => b.conf - a.conf);
-    if (ranked[0]) setFocus(ranked[0].id);
+    // Fixed default focus (S4): the measured-best head leads. Never pick the
+    // focus by uncalibrated confidence — that was auditing finding P4.2.
+    setFocus((cur) => (nextSnaps[cur] ? cur : nextSnaps.momo ? "momo" : (Object.keys(nextSnaps)[0] as ModelId)));
   }, []);
 
   const stopPoll = useCallback(() => {
@@ -291,6 +294,8 @@ export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
   }, [snaps, t.models]);
 
   const focusSnap = snaps[focus] ?? Object.values(snaps)[0];
+  const vote = focus === "momo" ? (snaps.momo?.vote ?? null) : null;
+  const cview = calibration?.confidence_view ?? null;
   const focusProbs = focusSnap?.probabilities ?? {};
   const rim = rimFromProba(focusProbs);
   const regime = (focusSnap?.regime ?? rim.regime) as RegimeCode;
@@ -397,17 +402,157 @@ export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
               <div className="regime-compact-head">
                 <strong style={{ color: guideColor }}>{regime}</strong>
                 <span className="regime-brief-name">{guide.name}</span>
-                <span className="status">
-                  {t.watch.confidence} {confidenceBand(confidence)}
-                </span>
+                {(focus !== "momo" || !vote) && (
+                  <span className="status">
+                    {t.watch.confidence} {confidenceBand(confidence)}
+                  </span>
+                )}
               </div>
+
+              {focus === "momo" && vote && (
+                <div className="conviction-card">
+                  <div className="align-badge">
+                    <span className="vote-dots" aria-hidden="true">
+                      {vote.rules.map((r) => (
+                        <i key={r.id} className={`vote-dot is-${r.vote}`} />
+                      ))}
+                    </span>
+                    <span className="align-badge-text">
+                      {vote.tier === "mixed"
+                        ? fill(t.conviction.badge.mixed, {
+                            a: String(Math.max(vote.up, vote.down)),
+                            b: String(Math.min(vote.up, vote.down)),
+                          })
+                        : fill(t.conviction.badge[vote.tier], {
+                            side: t.conviction.sideWord[vote.side],
+                          })}
+                    </span>
+                  </div>
+                  {cview && (
+                    <p className="conviction-direction">
+                      {vote.tier === "mixed"
+                        ? fill(t.conviction.directionMixed, {
+                            p: pctFloor(cview.tiers.mixed.side_hit),
+                          })
+                        : fill(t.conviction.directionAligned, {
+                            tierName: t.conviction.tierName[vote.tier],
+                            side: t.conviction.sideWord[vote.side],
+                            p: pctFloor(cview.tiers[vote.tier].side_hit),
+                          })}
+                    </p>
+                  )}
+                  {cview && (
+                    <p className="conviction-zone">
+                      {fill(t.conviction.zoneLine, {
+                        regime,
+                        p: pctFloor(cview.menu.zone1_hit),
+                      })}
+                    </p>
+                  )}
+                  {!cview && <p className="status">{t.conviction.unmeasured}</p>}
+                  {vote.up === vote.down && (
+                    <p className="status conviction-tie">{t.conviction.tieNote}</p>
+                  )}
+
+                  {cview && (
+                    <details className="conviction-expander">
+                      <summary>{t.conviction.detailTitle}</summary>
+                      <ul className="claims-ladder">
+                        <li>
+                          {fill(t.conviction.ladderDirection, {
+                            p: pctFloor(cview.menu.side_hit),
+                          })}
+                        </li>
+                        <li>
+                          {fill(t.conviction.ladderZone, {
+                            p1: pctFloor(cview.menu.zone1_hit),
+                            p2: pctFloor(cview.menu.zone2_hit),
+                          })}
+                        </li>
+                        <li>
+                          {fill(t.conviction.ladderExact, {
+                            p: pctFloor(cview.menu.exact_hit),
+                            ceiling: pctFloor(cview.menu.exact_ceiling),
+                          })}
+                        </li>
+                      </ul>
+                      <p className="status">{t.conviction.ladderExactWhy}</p>
+                    </details>
+                  )}
+                  {cview && (
+                    <details className="conviction-expander">
+                      <summary>{t.conviction.tierTableTitle}</summary>
+                      <table className="tier-table">
+                        <thead>
+                          <tr>
+                            <th>{t.conviction.tierTableCols.tier}</th>
+                            <th>{t.conviction.tierTableCols.side}</th>
+                            <th>{t.conviction.tierTableCols.share}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(["unanimous", "strong", "lean", "mixed"] as const).map((k) => (
+                            <tr key={k} className={vote.tier === k ? "is-current" : undefined}>
+                              <td>{t.conviction.tierTableRows[k]}</td>
+                              <td>{pctFloor(cview.tiers[k].side_hit)}</td>
+                              <td>
+                                {fill(t.conviction.tierTableShare, {
+                                  p: pctFloor(cview.tiers[k].share),
+                                })}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <p className="status">
+                        {fill(t.conviction.tierTableFooter, {
+                          n: cview.n_bars.toLocaleString(),
+                          legs: String(cview.n_legs),
+                        })}
+                      </p>
+                    </details>
+                  )}
+                  <details className="conviction-expander">
+                    <summary>{t.conviction.ledgerTitle}</summary>
+                    <ul className="rule-ledger">
+                      {vote.rules.map((r) => (
+                        <li key={r.id} className={`is-${r.vote}`}>
+                          <span>
+                            {t.conviction.ledgerRules[
+                              r.id as keyof typeof t.conviction.ledgerRules
+                            ]}
+                          </span>
+                          <em>{t.conviction.sideWord[r.vote]}</em>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="status">{t.conviction.ledgerFooter}</p>
+                  </details>
+                  {cview && (
+                    <details className="conviction-expander">
+                      <summary>{t.conviction.methodTitle}</summary>
+                      <ul className="method-lines">
+                        {t.conviction.methodLines.map((line, i) => (
+                          <li key={i}>
+                            {fill(line, {
+                              n: cview.n_bars.toLocaleString(),
+                              legs: String(cview.n_legs),
+                              source: cview.source,
+                            })}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
               {agreement && (
                 <p className="brief-agree">
-                  {t.watch.agree}{" "}
-                  <strong style={{ color: REGIME_GUIDE[agreement.regime].color }}>
-                    {agreement.regime}
-                  </strong>{" "}
-                  · {agreement.n}/{agreement.total}
+                  {fill(t.conviction.aiRefTitle, {
+                    code: agreement.regime,
+                    k: String(agreement.n),
+                    total: String(agreement.total),
+                  })}
                 </p>
               )}
 
@@ -469,6 +614,8 @@ export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
           </div>
           <EggChart
             models={modelMarks}
+            sideBand={vote ? { side: vote.side, tier: vote.tier } : null}
+            zoneCenter={focus === "momo" ? (regime as RegimeCode) : null}
             focusId={focus}
             onFocus={(id) => {
               setFocus(id);
@@ -477,6 +624,13 @@ export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
             loading={!hasAny && stillLoading}
             pendingLabel={null}
           />
+          {focus === "momo" && vote && (
+            <p className="egg-legend status">
+              {fill(t.conviction.eggLegend, {
+                sideSectors: vote.side === "up" ? "A1·A2·A3" : "B1·B2·B3",
+              })}
+            </p>
+          )}
         </div>
       </section>
 

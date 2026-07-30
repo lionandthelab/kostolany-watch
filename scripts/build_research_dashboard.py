@@ -332,6 +332,12 @@ def research_log() -> dict[str, Any]:
                 "action": "flows 드리프트 테이블을 적합값으로 교체(B*=0), flat 아웃룩(|Δ|<0.75%), 상수팔에 무조건부 밴드 명시. regime_drift_fit_20260730.json",
                 "status": "done",
             },
+            {
+                "date": "2026-07-30",
+                "what": "오너 결정: momo 전면화. 측정일치형 사후확률의 momo가 Brier 0.1338/0.1343으로 uniform(0.1389)을 양 시장에서 이김 — 프로젝트 첫 uniform 초과, ECE 0.005~0.009",
+                "action": "momo를 기본 헤드로(WATCH_DEFAULT_MODELS 선두, 번들 포함, UI 고정 포커스). S4: 달걀 호(원형 분산) + 확신도 자동포커스 제거. 실서버 E2E 확인",
+                "status": "done",
+            },
         ],
         "preregistrations": [
             {
@@ -373,6 +379,12 @@ def research_log() -> dict[str, Any]:
             "execution_lag ≥ 1",
             "면책 문구 상시 유지",
             "scripts/agent_verify.py 통과 없이 출고 금지",
+            {
+                "date": "2026-07-30",
+                "what": "오너 문제 제기: '확신도 25%는 너무 낮다' → 9-에이전트 분석팀(5설계×3교차검증×종합). 진단: 25%는 가장 어려운 문장(정확 칸)의 확신 — 시스템의 강한 문장(만장일치 방향 80%, ±1칸 64%)을 버리고 있었음",
+                "action": "확신 커뮤니케이션 시스템 출고 (research/confidence_spec.md): 8규칙 투표 등급(만장일치80%/강한우세67%/우세60%/혼조55%, 실측 조건부 테이블·파라미터 0) + 3단 주장 사다리 + 규칙 원장 + 달걀 사이드/존 밴드. '확신도 N%' 헤드라인 은퇴, 금지 문장 17종 카피 가드 테스트로 강제. confidence_menu_20260730.json",
+                "status": "done",
+            },
         ],
     }
 

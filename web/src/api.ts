@@ -27,6 +27,7 @@ export type Snapshot = {
   disclaimer: string;
   transition_score?: number | null;
   evidence?: EvidenceItem[] | null;
+  vote?: VoteBlock | null;
 };
 
 export type RegimeInfo = {
@@ -64,8 +65,40 @@ export type WatchAnalyst = {
   replay: ReplayResponse;
 };
 
+/** Live 8-rule vote block — momo head only; null on AI heads / fail-closed. */
+export type VoteBlock = {
+  up: number;
+  down: number;
+  split: string;
+  tier: "unanimous" | "strong" | "lean" | "mixed";
+  side: "up" | "down";
+  rules: { id: string; vote: "up" | "down" }[];
+};
+
+/** Frozen measured conditional tables backing the conviction display. */
+export type ConfidenceView = {
+  source: string;
+  measured_at: string;
+  n_bars: number;
+  n_legs: number;
+  rounding: string;
+  menu: {
+    side_hit: number;
+    zone1_hit: number;
+    zone2_hit: number;
+    exact_hit: number;
+    third_given_side: number;
+    exact_ceiling: number;
+  };
+  tiers: Record<
+    "unanimous" | "strong" | "lean" | "mixed",
+    { split: string; side_hit: number; zone1_hit: number; exact_hit: number; share: number }
+  >;
+};
+
 /** Measured out-of-sample calibration facts — not a model output. */
 export type RegimeCalibration = {
+  confidence_view?: ConfidenceView;
   measured: Record<string, { exact6: number; adjacent: number; ece: number; brier: number }>;
   constant_prior_baseline: { exact6: number; adjacent: number; ece: number; brier: number };
   exact6_chance: number;

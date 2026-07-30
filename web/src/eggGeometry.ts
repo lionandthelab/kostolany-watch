@@ -186,8 +186,19 @@ export const REGIME_GUIDE: Record<
   },
 };
 
-/** Public-facing analyst personas (ids stay API-stable). */
+/** Public-facing analyst personas (ids stay API-stable).
+ * "momo" is the DEFAULT head: the zero-fitted-parameter trend vote that won
+ * the pre-registered K2 gate. It is deliberately NOT framed as an AI. */
 export const TOP_MODELS = [
+  {
+    id: "momo",
+    label: "추세 규칙",
+    short: "규",
+    color: "#8a774a",
+    trait: "무학습 기준",
+    blurb:
+      "8개 추세 규칙의 다수결 + 전환 시계로 국면을 부르는 기본 헤드. 학습된 AI가 아니며, 표시 확률은 실측 적중률과 일치하도록 고정.",
+  },
   {
     id: "hmm",
     label: "리듬이",
@@ -215,3 +226,75 @@ export const TOP_MODELS = [
 ] as const;
 
 export type ModelId = (typeof TOP_MODELS)[number]["id"];
+
+/** Floor-only percent formatters — the only way numbers reach the screen.
+ * Rounding UP a measured hit rate is a compliance violation (spec §0.3). */
+export const pctFloor = (x: number) => `${Math.floor(x * 100)}%`;
+export const pctFloor1 = (x: number) => `${Math.floor(x * 1000) / 10}%`;
+
+const RING: readonly RegimeCode[] = ["A1", "A2", "A3", "B1", "B2", "B3"];
+
+function circMid(a: number, b: number): number {
+  const d = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  return a + d / 2;
+}
+
+/** Rim polyline over a CONTIGUOUS run of sectors (ring order), spanning from
+ * the boundary before the first to the boundary after the last. Boundaries are
+ * circular midpoints of adjacent REGIME_ANGLE marks (the marks are NOT equally
+ * spaced, so precomputed halves would be wrong). */
+export function sectorBandPath(codes: RegimeCode[], rx = EGG.rx, ry = EGG.ry): string {
+  if (!codes.length) return "";
+  const first = codes[0];
+  const last = codes[codes.length - 1];
+  const prev = RING[(RING.indexOf(first) + RING.length - 1) % RING.length];
+  const next = RING[(RING.indexOf(last) + 1) % RING.length];
+  const way = [
+    circMid(REGIME_ANGLE[prev], REGIME_ANGLE[first]),
+    ...codes.map((c) => REGIME_ANGLE[c]),
+    circMid(REGIME_ANGLE[last], REGIME_ANGLE[next]),
+  ];
+  let acc = way[0];
+  const p0 = pointOnRim(acc, rx, ry);
+  const pts = [`M${p0.x.toFixed(2)},${p0.y.toFixed(2)}`];
+  for (let i = 1; i < way.length; i++) {
+    const d = Math.atan2(Math.sin(way[i] - acc), Math.cos(way[i] - acc));
+    const steps = Math.max(2, Math.ceil(Math.abs(d) / 0.1));
+    for (let sIdx = 1; sIdx <= steps; sIdx++) {
+      const a = acc + (d * sIdx) / steps;
+      const q = pointOnRim(a, rx, ry);
+      pts.push(`L${q.x.toFixed(2)},${q.y.toFixed(2)}`);
+    }
+    acc += d;
+  }
+  return pts.join(" ");
+}
+
+export const SIDE_SECTORS: Record<"up" | "down", RegimeCode[]> = {
+  up: ["A1", "A2", "A3"],
+  down: ["B1", "B2", "B3"],
+};
+
+export function zoneSectors(center: RegimeCode): RegimeCode[] {
+  const i = RING.indexOf(center);
+  return [RING[(i + RING.length - 1) % RING.length], center, RING[(i + 1) % RING.length]];
+}
+
+/** Circular std (radians) of a 6-class posterior over the ring — the angular
+ * half-width of the egg arc. sigma = sqrt(-2 ln R), clamped to a drawable band. */
+export function circularSpread(probs: Record<string, number>): number {
+  let sx = 0;
+  let sy = 0;
+  let mass = 0;
+  for (const code of CYCLE) {
+    const w = Math.max(0, probs[code] ?? 0);
+    const a = REGIME_ANGLE[code];
+    sx += w * Math.cos(a);
+    sy += w * Math.sin(a);
+    mass += w;
+  }
+  if (mass < 1e-9) return Math.PI * 0.9;
+  const R = Math.min(1 - 1e-9, Math.hypot(sx, sy) / mass);
+  const sigma = Math.sqrt(-2 * Math.log(R));
+  return Math.min(Math.PI * 0.9, Math.max(0.12, sigma));
+}

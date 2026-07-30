@@ -95,7 +95,8 @@ def test_tsfm_ensemble_fit_predict():
 
 def test_shared_analyst_bundle_reuses_ensemble_arms():
     bundle = fit_analyst_bundle("SYNTH")
-    assert set(bundle) == {"hmm", "gbm", "tsfm"}
+    # momo joined the bundle when it became the default head (2026-07-30)
+    assert set(bundle) == {"momo", "hmm", "gbm", "tsfm"}
     assert bundle["hmm"].model is bundle["tsfm"].model.hmm
     assert bundle["gbm"].model is bundle["tsfm"].model.gbm
     assert all(bundle[k].snapshot().regime in {"A1", "A2", "A3", "B1", "B2", "B3"} for k in bundle)

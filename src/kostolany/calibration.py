@@ -29,6 +29,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from kostolany.momo import MEASURED_THIRD_GIVEN_SIDE
+
 # Chance level for 6 classes, and the structural floor for cyclic-adjacent
 # accuracy (3 of 6 classes are within one step on the ring, so 0.5 is free).
 EXACT6_CHANCE = 1.0 / 6.0
@@ -41,6 +43,11 @@ UNIFORM_BRIER = 5.0 / 36.0
 MEASURED_BY_SYMBOL: dict[str, dict[str, Any]] = {
     "^GSPC": {
         "measured": {
+            # momo = the K2 winner (majority-of-8 trend vote + causal clock,
+            # zero fitted parameters, measurement-matched posterior). Scored on
+            # the same OOS window with clock cuts fitted strictly pre-OOS.
+            # Its Brier BEATS the uniform floor — the only component that does.
+            "momo": {"exact6": 0.2589, "adjacent": 0.6431, "ece": 0.0092, "brier": 0.1338},
             "hmm": {"exact6": 0.2301, "adjacent": 0.6268, "ece": 0.1697, "brier": 0.1443},
             "gbm": {"exact6": 0.2053, "adjacent": 0.5866, "ece": 0.4793, "brier": 0.1936},
             "tsfm": {"exact6": 0.2074, "adjacent": 0.6168, "ece": 0.2949, "brier": 0.1595},
@@ -57,8 +64,9 @@ MEASURED_BY_SYMBOL: dict[str, dict[str, Any]] = {
             "ece": 0.0521,
             "brier": 0.1389,
         },
-        # Zero-fitted-parameter momentum family (8 rules, median), same folds.
-        "momo_floor": {"side_median": 0.7006, "exact6_median": 0.2615},
+        # Zero-fitted-parameter momentum family: fold-median of the 8 rules
+        # plus the shipping majority-vote head's own side accuracy.
+        "momo_floor": {"side_median": 0.7006, "exact6_median": 0.2615, "vote_side": 0.7170},
         "n_oos_bars": 2816,
         "n_oos_legs": 37,
         "window": "2015-05..2026-07",
@@ -66,6 +74,7 @@ MEASURED_BY_SYMBOL: dict[str, dict[str, Any]] = {
     },
     "BTC-USD": {
         "measured": {
+            "momo": {"exact6": 0.2450, "adjacent": 0.6361, "ece": 0.0048, "brier": 0.1343},
             "hmm": {"exact6": 0.2369, "adjacent": 0.6347, "ece": 0.1078, "brier": 0.1413},
             "gbm": {"exact6": 0.2554, "adjacent": 0.6475, "ece": 0.3859, "brier": 0.1711},
             "tsfm": {"exact6": 0.2584, "adjacent": 0.6625, "ece": 0.2198, "brier": 0.1488},
@@ -82,11 +91,62 @@ MEASURED_BY_SYMBOL: dict[str, dict[str, Any]] = {
             "ece": 0.0187,
             "brier": 0.1389,
         },
-        "momo_floor": {"side_median": 0.6731, "exact6_median": 0.2413},
+        "momo_floor": {"side_median": 0.6731, "exact6_median": 0.2413, "vote_side": 0.7071},
         "n_oos_bars": 2984,
         "n_oos_legs": 42,
         "window": "2018-05..2026-07",
         "artifact": "phase_head_BTC-USD_20260730T030119Z.json",
+    },
+}
+
+
+# Transcribed cell-for-cell from artifacts/experiments/confidence_menu_20260730.json
+# (the artifacts/ tree is dockerignored, so runtime loads are not an option).
+# Binning 8-0 / 7-1 / 6-2 / split(5-3,4-4) is FROZEN with the artifact —
+# re-binning after observing the display is fitting-by-selection: forbidden.
+# All displayed percentages derive from these cells via floor() only.
+CONFIDENCE_VIEW_BY_SYMBOL: dict[str, dict[str, Any]] = {
+    "^GSPC": {
+        "source": "confidence_menu_20260730.json",
+        "measured_at": "2026-07-30",
+        "n_bars": 2816,
+        "n_legs": 37,
+        "rounding": "floor",
+        "menu": {
+            "side_hit": 0.717,
+            "zone1_hit": 0.6431,
+            "zone2_hit": 0.8771,
+            "exact_hit": 0.2589,
+            "third_given_side": 0.3611,
+            "exact_ceiling": MEASURED_THIRD_GIVEN_SIDE,  # structural, not measured
+        },
+        "tiers": {
+            "unanimous": {"split": "8-0", "side_hit": 0.8062, "zone1_hit": 0.6868, "exact_hit": 0.2638, "share": 0.5533},
+            "strong": {"split": "7-1", "side_hit": 0.6748, "zone1_hit": 0.6459, "exact_hit": 0.2606, "share": 0.1594},
+            "lean": {"split": "6-2", "side_hit": 0.6036, "zone1_hit": 0.5782, "exact_hit": 0.2655, "share": 0.0977},
+            "mixed": {"split": "5-3/4-4", "side_hit": 0.5506, "zone1_hit": 0.5468, "exact_hit": 0.2397, "share": 0.1896},
+        },
+    },
+    "BTC-USD": {
+        "source": "confidence_menu_20260730.json",
+        "measured_at": "2026-07-30",
+        "n_bars": 2984,
+        "n_legs": 42,
+        "rounding": "floor",
+        "menu": {
+            "side_hit": 0.7071,
+            "zone1_hit": 0.6361,
+            "zone2_hit": 0.9021,
+            "exact_hit": 0.245,
+            "third_given_side": 0.3464,
+            "exact_ceiling": MEASURED_THIRD_GIVEN_SIDE,
+        },
+        "tiers": {
+            "unanimous": {"split": "8-0", "side_hit": 0.7981, "zone1_hit": 0.6677, "exact_hit": 0.2035, "share": 0.4266},
+            "strong": {"split": "7-1", "side_hit": 0.6767, "zone1_hit": 0.6399, "exact_hit": 0.2881, "share": 0.2001},
+            "lean": {"split": "6-2", "side_hit": 0.6499, "zone1_hit": 0.6139, "exact_hit": 0.2638, "share": 0.1397},
+            "mixed": {"split": "5-3/4-4", "side_hit": 0.6011, "zone1_hit": 0.5882, "exact_hit": 0.2726, "share": 0.2336},
+        },
     },
 }
 
@@ -99,14 +159,14 @@ def _note_ko(block: dict[str, Any]) -> str:
     ece_lo = min(v["ece"] for v in m.values())
     ece_hi = max(v["ece"] for v in m.values())
     momo = block.get("momo_floor", {})
+    vote_side = momo.get("vote_side", momo.get("side_median", 0))
     return (
-        "표시되는 확률은 보정 보증이 없습니다(uniform 앵커 적용). "
-        f"{block['window']} 구간 {block['n_oos_bars']:,}봉 워크포워드 평가에서 "
-        f"6국면 정확 적중률은 약 {exact_txt}"
-        f"(무작위 {EXACT6_CHANCE * 100:.0f}%)였고, 보정 오차(ECE)는 "
-        f"{ece_lo:.2f}~{ece_hi:.2f}였습니다. 참고로 학습 없는 추세 규칙의 "
-        f"상승/하락 적중률은 {momo.get('side_median', 0) * 100:.0f}%로 "
-        "세 모델보다 높았습니다. 확신도는 순위 참고용이며 적중 확률이 아닙니다."
+        f"{block['window']} 구간 {block['n_oos_bars']:,}봉 워크포워드 실측: "
+        f"6국면 정확 적중률 약 {exact_txt}(무작위 {EXACT6_CHANCE * 100:.0f}%), "
+        f"보정 오차(ECE) {ece_lo:.2f}~{ece_hi:.2f}. 기본 헤드(추세 규칙)는 "
+        "학습된 모델이 아니며, 표시 확률이 실측 적중률과 일치하도록 고정되어 "
+        f"있습니다(상승/하락 적중 {vote_side * 100:.0f}%). "
+        "AI 3종의 확신도는 순위 참고용이며 적중 확률이 아닙니다."
     )
 
 
@@ -121,7 +181,10 @@ def calibration_payload(symbol: str) -> dict[str, Any] | None:
     block = MEASURED_BY_SYMBOL.get(symbol) or MEASURED_BY_SYMBOL.get(symbol.upper())
     if block is None:
         return None
-    return {
+    confidence_view = CONFIDENCE_VIEW_BY_SYMBOL.get(symbol) or CONFIDENCE_VIEW_BY_SYMBOL.get(
+        symbol.upper()
+    )
+    payload: dict[str, Any] = {
         "measured": block["measured"],
         "constant_prior_baseline": block["constant_prior_baseline"],
         "uniform_baseline": block["uniform_baseline"],
@@ -138,3 +201,8 @@ def calibration_payload(symbol: str) -> dict[str, Any] | None:
         "confidence_is_calibrated": False,
         "note_ko": _note_ko(block),
     }
+    # Unmeasured symbol -> no key at all: the UI must never render a borrowed
+    # table (same contract as the calibration block itself).
+    if confidence_view is not None:
+        payload["confidence_view"] = confidence_view
+    return payload
