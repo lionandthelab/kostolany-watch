@@ -1,0 +1,93 @@
+{
+  "id": "side_head_v1",
+  "registered_at": "2026-07-30",
+  "design_doc": "research/sota_design.md",
+  "decided_before_any_run": true,
+  "owner_approval": "2026-07-30 conversation: '1. 승인'",
+
+  "panel": ["SPY", "QQQ", "IWM", "EEM", "EWJ", "FXI", "EWG", "XLE", "XLF", "GLD", "TLT", "BTC-USD"],
+  "panel_notes": "12 instruments, chosen to avoid near-duplicates by construction. Excluded as duplicate factors: ^GSPC (=SPY), ^RUT (=IWM), XLK (=QQQ), RSP (SPY reweight), IEF/SHY (=TLT curve), EWY/KS11 (retired). Serving measurement stays on ^GSPC/BTC-USD.",
+  "collapse_map": {},
+
+  "fold_geometry": {
+    "cv": "PurgedWalkForward",
+    "n_splits": 8,
+    "min_train": 1260,
+    "anchor": "end",
+    "purge_horizon": 5,
+    "embargo": 5,
+    "note": "BTC-style 7d calendars keep the same bar counts"
+  },
+  "bootstrap": {
+    "unit": "leg (gold_leg_segments)",
+    "n_boot": 2000,
+    "seed": 20260729,
+    "scheme": "two-level paired cluster: outer=instrument, inner=leg, shared draw matrix across candidates",
+    "stratified_by_instrument_leg_share": true
+  },
+  "multiple_comparisons": {
+    "variants_already_scored_on_origin": 45,
+    "alpha": 0.05,
+    "bonferroni_z": 3.2
+  },
+
+  "comparators": {
+    "uniform": "p=1/6 constant; Brier exactly 5/36=0.138889",
+    "momo_floor_family": [
+      "side = sign(close - MA_20)", "side = sign(close - MA_40)", "side = sign(close - MA_60)",
+      "side = sign(close - MA_100)", "side = sign(close - MA_200)",
+      "side = sign(ret_10)", "side = sign(ret_20)", "side = sign(ret_60)"
+    ],
+    "momo_floor_scoring": "median of family = primary comparator; max of family = adversarial guardrail (G11). Third factor for all rules = pit clock terciles (train-fitted).",
+    "clockroll_hedged": "pit clock carried at unconditional train survival rate; exact6 never quoted"
+  },
+
+  "side_head": {
+    "estimator": "sklearn LogisticRegression (log-loss), target 1[y_weak < 3] (causal weak side)",
+    "design_matrix": "12 DEFAULT_PHASE_FEATURES + close/MA_w - 1 for w in {20,60,200} + causal z(ret_20)",
+    "third_factor": "labels_pit.pit_state clock, DECLARED FLAT (train-slice conditional ~ 1/3), zero parameters",
+    "calibration": "p_final = (1-lambda)*uniform + lambda*p_head; lambda in [0,1] 41-point grid, fitted by inner-holdout (252 bars) log-loss on weak target. ONE fitted scalar."
+  },
+
+  "gates": {
+    "G1": {"metric": "side accuracy, panel median", "threshold": ">= 0.640", "type": "absolute"},
+    "G2": {"metric": "side, SideHead - momo_floor(median)", "threshold": ">= 0.000 and CI_lower > -0.010", "type": "non-inferiority, z=3.20", "note": "point estimate in (0,+0.015) is reported as NOT IDENTIFIED, never a win"},
+    "G3": {"metric": "side, SideHead - phase_head", "threshold": ">= +0.050, CI excludes 0", "type": "paired, z=3.20"},
+    "G4": {"metric": "Brier vs uniform", "threshold": "CI_upper < +0.0010 (non-inferiority)", "type": "paired, z=3.20"},
+    "G5": {"metric": "Brier superiority (secondary)", "threshold": "point <= 0.1369 and CI_upper < 0", "type": "paired, z=3.20"},
+    "G6": {"metric": "leg-blocked ECE, panel median", "threshold": "<= 0.060, and <= 0.10 on >= 10 of 12", "type": "absolute"},
+    "G7": {"metric": "exact6, panel median", "threshold": ">= 0.235", "type": "absolute, reported not promoted"},
+    "G8": {"metric": "adjacent, panel median", "threshold": ">= 0.620", "type": "absolute (floor 0.500)"},
+    "G9": {"metric": "cyclic distance, panel median", "threshold": "<= 1.240", "type": "absolute"},
+    "G10": {"metric": "clock third|side", "threshold": "in [0.355, 0.385]", "type": "sanity band; >0.40 leak, <0.34 broken clock"},
+    "G11": {"metric": "side vs momo_floor max-of-family", "threshold": "not worse by > 0.010", "type": "adversarial guardrail"},
+    "G12": {"metric": "S0 lag-fix regression on serving arms", "threshold": "exact6 drop <= 0.010 vs 2026-07-30 anchors; if exceeded, republish all downstream artifacts before promoting anything", "type": "audit"},
+    "G13": {"metric": "pit_state prefix stability", "threshold": "500/500 random (s,t,t') triples per symbol", "type": "property test in agent_verify"},
+    "G14": {"metric": "served-arm ECE after lambda anchor", "threshold": "<= 0.15 on hmm, gbm, tsfm (current 0.7447/0.4956/0.2947 on ^GSPC)", "type": "per-arm"},
+    "G15": {"metric": "circular-shift shuffle canary per block", "threshold": "median shuffled effect < 25% of true; 5-95 envelope must not contain true", "type": "20 draws"},
+    "G16": {"metric": "as-of reversal per block", "threshold": "improvement <= 1 paired SE", "type": "one-day reversal"},
+    "G17": {"metric": "restatement canary per block", "threshold": "historical values bit-identical across two fetches >= 7d apart", "type": "direct comparison"},
+    "G18": {"metric": "leakage hard stop", "threshold": "gold_used_for_training=false; zero LeakageAuditor critical; agent_verify passes; Korean disclaimer on every touched surface", "type": "assertion"}
+  },
+
+  "kill_conditions": {
+    "K1": "G3 fails -> momentum-floor finding does not replicate on panel; stop, KS11-era measurement was single-market artifact",
+    "K2": "G2 fails -> SHIP momo_floor as the head, DELETE side.py. Pre-registered acceptable outcome.",
+    "K3": "G4 fails -> ship uniform as served posterior (lambda=0), head kept for ordinal call only, confidence_is_calibrated=false permanently",
+    "K4": "G13 fails or any LeakageAuditor critical -> hard stop, revert branch",
+    "K5": "G15/G16/G17 fail for a block -> drop that block only",
+    "K6": "G12 exceeded -> republish every published number first; that becomes the priority work",
+    "K7": "G14 fails -> remove the confidence band from the UI entirely rather than render a miscalibrated one",
+    "K8": "panel side median < 0.600 after S0 -> momentum floor was partly riding leaks; stop and report"
+  },
+
+  "retired": {
+    "exact6_gate_0.29": "arithmetically unreachable: requires side 0.780; panel max ever measured 0.6890",
+    "factorisation_tripwire_as_test": "identity of conditional probability; gap 0.0000 on 27/27 runs; demoted to plumbing assertion",
+    "prior_shrunk_as_calibration_bar": "loses to uniform 5/36 on 4/4 stored runs"
+  },
+
+  "already_rejected_blocks": {
+    "P-XS-1": "cross-sectional ratio breadth for the side task: dAUC -0.002, shuffle beat causal. Deleted. xs_breadth_GSPC_20260730T015233Z.json"
+  }
+}
