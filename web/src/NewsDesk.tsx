@@ -1,34 +1,32 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchNews, type NewsDesk, type NewsTone } from "./api";
 import MarkdownBrief from "./MarkdownBrief";
+import { useLocale, useT } from "./i18n";
+import LocaleSwitcher from "./LocaleSwitcher";
+import AdSlot from "./AdSlot";
 
 const THEME_COLOR: Record<string, string> = {
   money: "#2f5d50",
   credit: "#c45c3e",
+  crypto: "#b8860b",
   korea: "#4a7c9b",
   sentiment: "#6b7c74",
 };
 
-function formatKst(iso?: string | null): string {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleString("ko-KR", {
-      timeZone: "Asia/Seoul",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function ToneMeter({ tone, color }: { tone: NewsTone; color: string }) {
-  // score -1..1 → 0..100%
+function ToneMeter({
+  tone,
+  color,
+  guard,
+  ease,
+}: {
+  tone: NewsTone;
+  color: string;
+  guard: string;
+  ease: string;
+}) {
   const pct = ((tone.score + 1) / 2) * 100;
   return (
-    <div className="news-tone" aria-label={`감성 ${tone.label}`}>
+    <div className="news-tone" aria-label={tone.label}>
       <div className="news-tone-meta">
         <span className="news-tone-label">{tone.label}</span>
         <span className="news-tone-score">
@@ -44,20 +42,26 @@ function ToneMeter({ tone, color }: { tone: NewsTone; color: string }) {
         />
       </div>
       <div className="news-tone-ends">
-        <span>경계</span>
-        <span>완화</span>
+        <span>{guard}</span>
+        <span>{ease}</span>
       </div>
     </div>
   );
 }
 
 type Props = {
-  onBack?: () => void;
   onWatch?: () => void;
+  onMacro?: () => void;
+  onAbout?: () => void;
+  /** @deprecated use onMacro */
   onFlows?: () => void;
+  onBack?: () => void;
 };
 
-export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
+export default function NewsDesk({ onWatch, onMacro, onAbout, onFlows, onBack }: Props) {
+  const t = useT();
+  const { formatDate } = useLocale();
+  const goMacro = onMacro ?? onFlows;
   const [desk, setDesk] = useState<NewsDesk | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,33 +95,36 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
   return (
     <div className="page news-page">
       <nav className="topnav desk-nav">
-        {onBack && (
-          <button type="button" className="nav-quiet nav-btn" onClick={onBack}>
-            ← 소개
-          </button>
-        )}
-        <div className="desk-tabs" role="tablist" aria-label="화면">
+        <div className="desk-tabs" role="tablist" aria-label={t.nav.screens}>
           <button type="button" className="desk-tab" onClick={onWatch}>
-            국면
+            {t.nav.regime}
+          </button>
+          <button type="button" className="desk-tab" onClick={goMacro}>
+            {t.nav.macro}
           </button>
           <button type="button" className="desk-tab is-active" aria-current="page">
-            뉴스
+            {t.nav.news}
           </button>
-          <button type="button" className="desk-tab" onClick={onFlows}>
-            흐름
-          </button>
+        </div>
+        <div className="desk-nav-end">
+          <LocaleSwitcher />
+          {(onAbout || onBack) && (
+            <button type="button" className="nav-quiet nav-btn" onClick={onAbout ?? onBack}>
+              {onAbout ? t.nav.about : t.nav.aboutBack}
+            </button>
+          )}
         </div>
       </nav>
 
       <header className="news-hero fade-up">
-        <h2 className="section-kicker">뉴스</h2>
+        <h2 className="section-kicker">{t.news.title}</h2>
         <div className="cache-bar">
           <span className="status">
             {loading
               ? desk
-                ? "갱신 중…"
-                : "불러오는 중…"
-              : formatKst(desk?.asof) || ""}
+                ? t.common.refreshing
+                : t.common.loading
+              : formatDate(desk?.asof) || ""}
           </span>
           <button
             type="button"
@@ -125,16 +132,16 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
             disabled={loading}
             onClick={() => void load(true)}
           >
-            새로고침
+            {t.common.refresh}
           </button>
         </div>
       </header>
 
       {error && (
         <p className="status">
-          오류: {error}{" "}
+          {t.common.error}: {error}{" "}
           <button type="button" className="linkish" onClick={() => void load(false)}>
-            다시 시도
+            {t.common.retry}
           </button>
         </p>
       )}
@@ -142,18 +149,20 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
       {desk && (
         <>
           {desk.priority_summary_md && (
-            <section className="briefing-rail fade-up" aria-label="오늘 핵심">
+            <section className="briefing-rail fade-up" aria-label={t.news.briefingAria}>
               <MarkdownBrief source={desk.priority_summary_md} />
             </section>
           )}
 
-          <div className="news-filters" role="tablist" aria-label="주제">
+          <AdSlot className="ad-slot--rail" slot="news-mid" />
+
+          <div className="news-filters" role="tablist" aria-label={t.news.themes}>
             <button
               type="button"
               className={`news-filter${themeFilter === "all" ? " is-active" : ""}`}
               onClick={() => setThemeFilter("all")}
             >
-              전체
+              {t.news.all}
             </button>
             {desk.sections.map((s) => (
               <button
@@ -176,11 +185,18 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
                   <h2 className="news-section-title" style={{ color }}>
                     {sec.label_ko}
                   </h2>
-                  {sec.tone && <ToneMeter tone={sec.tone} color={color} />}
+                  {sec.tone && (
+                    <ToneMeter
+                      tone={sec.tone}
+                      color={color}
+                      guard={t.news.toneGuard}
+                      ease={t.news.toneEase}
+                    />
+                  )}
                 </div>
                 {sec.summary_ko && <p className="news-section-summary">{sec.summary_ko}</p>}
                 {sec.items.length === 0 ? (
-                  <p className="status">헤드라인 없음</p>
+                  <p className="status">{t.news.empty}</p>
                 ) : (
                   <ul className="news-list">
                     {sec.items.map((it) => (
@@ -194,7 +210,7 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
                           <span className="news-row-meta">
                             <span className="news-row-source">{it.source}</span>
                             {it.published_at && (
-                              <time dateTime={it.published_at}>{formatKst(it.published_at)}</time>
+                              <time dateTime={it.published_at}>{formatDate(it.published_at)}</time>
                             )}
                           </span>
                           <span className="news-row-title">{it.title}</span>
@@ -208,7 +224,7 @@ export default function NewsDesk({ onBack, onWatch, onFlows }: Props) {
           })}
 
           <section className="news-desk-links fade-up">
-            <h2 className="news-section-title">공식 데스크</h2>
+            <h2 className="news-section-title">{t.news.official}</h2>
             <ul className="news-official">
               {desk.desk_links.map((d) => (
                 <li key={d.url}>

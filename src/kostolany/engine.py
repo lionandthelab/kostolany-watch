@@ -21,7 +21,7 @@ from kostolany.replay import ReplayFrame, build_replay, replay_payload
 from kostolany.tsfm import TSFMEnsemble
 
 
-ModelKind = Literal["hmm", "gbm", "ensemble", "tsfm", "ensemble_v3"]
+ModelKind = Literal["hmm", "gbm", "ensemble", "tsfm", "ensemble_v3", "momo"]
 MODEL_FIT_LOCK = RLock()
 
 
@@ -58,6 +58,10 @@ class KostolanyEngine:
             return KostolanyGBM()
         if self.model_kind in {"tsfm", "ensemble_v3"}:
             return TSFMEnsemble()
+        if self.model_kind == "momo":
+            from kostolany.momo import MomoFloorHead
+
+            return MomoFloorHead()
         return EnsembleEngine()
 
     def fit_market(self, market: MarketData) -> "KostolanyEngine":
@@ -73,11 +77,22 @@ class KostolanyEngine:
                 )
             y = weak_labels(feats).reindex(X.index)
             self.model = self._make_model()
-            self.model.fit(X, y)
+            if self.model_kind == "momo":
+                # The K2 winner consumes PRICES only — it never sees features
+                # or labels, so it cannot overfit either.
+                close = market.ohlcv["close"].dropna().astype(float).sort_index()
+                self.model.fit(close)
+                regimes, proba = self.model.predict(close)
+                self._last_pred = RegimePrediction(
+                    regimes=regimes.reindex(X.index).ffill().astype(int),
+                    proba=proba.reindex(X.index).ffill(),
+                )
+            else:
+                self.model.fit(X, y)
+                self._last_pred = self.model.predict(X)
             self.symbol = market.symbol
             self._last_features = feats
             self._last_ohlcv = market.ohlcv
-            self._last_pred = self.model.predict(X)
         return self
 
     def fit_symbol(self, symbol: str, start: str = "2010-01-01", *, enrich_fred: bool = True) -> "KostolanyEngine":
@@ -237,17 +252,51 @@ def fit_analyst_bundle(
         "gbm": master.model.gbm,
         "tsfm": master.model,
     }
+
+    # One-scalar lambda-uniform anchor per arm (pre-registered side_head_v1
+    # calibration; gate G14). lambda is fitted CAUSALLY: a prefix refit
+    # predicts the trailing 252 bars it never saw, and log-loss on the causal
+    # weak labels picks the blend. argmax is anchor-invariant, so the regime
+    # call never changes — only the displayed probability mass does. Measured
+    # unanchored ECE of these arms was 0.75/0.50/0.29 (^GSPC); an anchor
+    # failure falls back to lambda=0 == the uniform floor, never a raw vector.
+    from kostolany.anchor import apply_lambda, fit_lambda
+
+    lambdas = {"hmm": 0.0, "gbm": 0.0, "tsfm": 0.0}
+    hold = 252
+    try:
+        if len(X) - hold >= 504:
+            y_all = weak_labels(master._last_features).reindex(X.index)
+            pre = TSFMEnsemble().fit(X.iloc[:-hold], y_all.iloc[:-hold])
+            Xh, yh = X.iloc[-hold:], y_all.iloc[-hold:]
+            cols = [f"p{i}" for i in range(6)]
+            lambdas = {
+                "hmm": fit_lambda(pre.hmm.predict(Xh).proba[cols], yh),
+                "gbm": fit_lambda(pre.gbm.predict(Xh).proba[cols], yh),
+                "tsfm": fit_lambda(pre.predict(Xh).proba[cols], yh),
+            }
+    except Exception:  # noqa: BLE001 — anchor must never take the desk down
+        lambdas = {"hmm": 0.0, "gbm": 0.0, "tsfm": 0.0}
+
     out: dict[str, KostolanyEngine] = {}
     for kind in ("hmm", "gbm", "tsfm"):
         pred = predictions[kind]
         if pred is None:
             raise RuntimeError(f"Missing prediction for {kind}")
+        anchored = RegimePrediction(
+            regimes=pred.regimes,
+            proba=apply_lambda(pred.proba, lambdas[kind]),
+            state_proba=pred.state_proba,
+            transition_matrix=pred.transition_matrix,
+            mapping=pred.mapping,
+        )
         view = KostolanyEngine(model_kind=kind)  # type: ignore[arg-type]
         view.model = models[kind]
         view.symbol = market.symbol
         view._last_features = master._last_features
         view._last_ohlcv = master._last_ohlcv
-        view._last_pred = pred
+        view._last_pred = anchored
+        view.anchor_lambda = lambdas[kind]
         out[kind] = view
     return out
 

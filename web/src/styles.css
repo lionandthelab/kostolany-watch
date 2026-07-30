@@ -427,6 +427,21 @@ select {
   }
 }
 
+.model-pin.is-interactive {
+  cursor: pointer;
+}
+
+.model-pin-tip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.model-pin:hover .model-pin-tip,
+.model-pin:focus-visible .model-pin-tip {
+  opacity: 1;
+}
+
 .egg-svg {
   width: 100%;
   height: 100%;
@@ -717,6 +732,7 @@ button.btn-primary {
 
 /* —— Landing —— */
 .landing {
+  position: relative;
   width: min(1120px, calc(100% - 2rem));
   margin: 0 auto;
   padding: 0 0 4rem;
@@ -918,12 +934,24 @@ button.btn-primary {
   padding-bottom: 1rem;
 }
 
+.landing-finale h2 {
+  margin-bottom: 0.65rem;
+}
+
+.landing-finale > p {
+  margin: 0 0 2rem;
+  max-width: 28rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .landing-finale .btn-primary {
-  margin-top: 1.25rem;
+  margin-top: 0.25rem;
+  display: inline-flex;
 }
 
 .landing-disclaimer {
-  margin-top: 1.75rem;
+  margin-top: 2.25rem;
 }
 
 .desk-nav {
@@ -934,10 +962,67 @@ button.btn-primary {
   justify-content: space-between;
 }
 
+.desk-nav-end {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-left: auto;
+}
+
+.locale-switch select {
+  font: inherit;
+  font-size: 0.82rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+}
+
+.landing-lang {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 3;
+}
+
+.ad-slot {
+  margin: 1.25rem 0;
+  width: 100%;
+  max-width: 44rem;
+}
+
+.ad-slot--rail {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.ad-slot--placeholder {
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(47, 93, 80, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .desk-tabs {
   display: inline-flex;
   gap: 0.25rem;
-  margin-left: auto;
 }
 
 .desk-tab {
@@ -1225,6 +1310,12 @@ button.btn-primary {
   border-color: #c45c3e;
 }
 
+/* Measured: the consensus has no direction skill (P-CONS-1). A near-zero tilt
+   renders as an explicitly neutral call instead of a fake Up/Down. */
+.flow-consensus.is-flat {
+  border-color: rgba(26, 31, 28, 0.35);
+}
+
 .flow-consensus.is-pending {
   border-color: rgba(26, 31, 28, 0.28);
   opacity: 0.8;
@@ -1450,6 +1541,301 @@ button.btn-primary {
   font-weight: 500;
   color: var(--muted);
   margin-left: 0.35rem;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(26, 31, 28, 0.48);
+  display: grid;
+  place-items: end center;
+  padding: 0;
+}
+
+@media (min-width: 720px) {
+  .modal-backdrop {
+    place-items: center;
+    padding: 2rem;
+  }
+}
+
+.modal-sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(44rem, 100%);
+  max-height: min(94vh, 56rem);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 22px 22px 0 0;
+  padding: 1.5rem 1.5rem 0;
+  box-shadow: 0 18px 48px rgba(26, 31, 28, 0.2);
+}
+
+@media (min-width: 720px) {
+  .modal-sheet {
+    border-radius: 20px;
+    padding: 2rem 2.25rem 0;
+    max-height: min(90vh, 52rem);
+  }
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+  margin: 0 0 0.35rem;
+  padding: 0 0 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-head h3 {
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.4rem;
+  color: var(--moss-deep);
+}
+
+.modal-close {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 999px;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 1.25rem 0.15rem 2rem;
+  font-size: 1.02rem;
+  line-height: 1.65;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 720px) {
+  .modal-body {
+    padding: 1.5rem 0.25rem 2.25rem;
+  }
+}
+
+.modal-lead {
+  margin-bottom: 1.25rem;
+}
+
+.modal-lead strong {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.35rem;
+}
+
+.modal-lead p {
+  margin: 0.65rem 0 0;
+}
+
+.modal-meta {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.modal-guide {
+  margin-top: 0.5rem;
+}
+
+.modal-analysts {
+  margin: 0;
+}
+
+.macro-news-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.macro-news-head .news-section-title {
+  margin: 0;
+}
+
+.btn-sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+}
+
+.explain-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.85rem 0 0.35rem;
+}
+
+.regime-compact {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.regime-compact-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem 0.75rem;
+}
+
+.regime-compact-head strong {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.75rem;
+}
+
+.gauge-strip {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.gauge-strip li {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr 2.2rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.gauge-strip em {
+  font-style: normal;
+  color: var(--muted);
+  text-align: right;
+}
+
+.desk-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.macro-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  gap: 0.75rem;
+  margin: 0.5rem 0 1.25rem;
+}
+
+.macro-card {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.macro-card h3 {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--moss-deep);
+}
+
+.macro-card-blurb {
+  margin: 0.15rem 0 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.macro-card-value {
+  margin: 0.45rem 0 0.35rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.macro-card-value strong {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.macro-unit {
+  margin-left: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.macro-delta {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.macro-spark {
+  width: 100%;
+  height: 2.4rem;
+  display: block;
+}
+
+.macro-spark.empty {
+  height: 2.4rem;
+  background: rgba(26, 31, 28, 0.04);
+  border-radius: 4px;
+}
+
+.fedwatch-panel {
+  margin: 0 0 1.1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.45);
+  max-width: 36rem;
+}
+
+.fedwatch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.fedwatch-head h3 {
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.05rem;
+  color: var(--moss-deep);
+}
+
+.fedwatch-bars {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.fedwatch-bar {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr 2.8rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.fedwatch-bar em {
+  font-style: normal;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.macro-news {
+  margin: 1rem 0 1.5rem;
 }
 
 .flows-hero-row {

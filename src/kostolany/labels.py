@@ -85,7 +85,10 @@ def weak_labels(features: pd.DataFrame) -> pd.Series:
                 + r_vol * 0.25
                 + r_surge * 0.2
                 + (1 - r_sent) * 0.25
-                + (-dd.clip(-0.5, 0) / 0.5) * 0.05
+                # B3 = capitulation depth. Same normalization convention as A1:
+                # the old /0.5 needed a -50% drawdown for full credit, which
+                # never occurs on index data — the term was a near-zero constant.
+                + (-dd.clip(-0.20, 0) / 0.20) * 0.05
             ),
         },
         index=features.index,

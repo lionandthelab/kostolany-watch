@@ -362,7 +362,7 @@ export default function FlowsDesk({ onBack, onWatch, onNews }: Props) {
   const [sectors, setSectors] = useState<SectorInfo[]>([]);
   const [groups, setGroups] = useState<SectorGroup[]>([]);
   const [groupId, setGroupId] = useState("markets");
-  const [sectorId, setSectorId] = useState("kospi");
+  const [sectorId, setSectorId] = useState("spx");
   const [flow, setFlow] = useState<SectorFlow | null>(null);
   const [gauge, setGauge] = useState<FearGreedGauge | null>(null);
   const [fgOpen, setFgOpen] = useState(false);
@@ -719,7 +719,7 @@ export default function FlowsDesk({ onBack, onWatch, onNews }: Props) {
       <div className="flow-group-tabs" role="tablist" aria-label="분류">
         {(groups.length
           ? groups
-          : [{ id: "markets", label_ko: "시장·국가", sector_ids: ["kospi"] }]
+          : [{ id: "markets", label_ko: "시장·국가", sector_ids: ["spx"] }]
         ).map((g) => (
           <button
             key={g.id}
@@ -733,7 +733,7 @@ export default function FlowsDesk({ onBack, onWatch, onNews }: Props) {
       </div>
 
       <div className="news-filters" role="tablist" aria-label="티커">
-        {(groupSectors.length ? groupSectors : [{ id: "kospi", label: "코스피", blurb: "KS11" }]).map(
+        {(groupSectors.length ? groupSectors : [{ id: "spx", label: "S&P 500", blurb: "SPY" }]).map(
           (s) => (
             <button
               key={s.id}
@@ -788,7 +788,7 @@ export default function FlowsDesk({ onBack, onWatch, onNews }: Props) {
             <div className={`flow-consensus is-${displayFlow.consensus.outlook}`}>
               <span>3개월</span>
               <strong>
-                {displayFlow.consensus.outlook === "up" ? "Up" : "Down"}{" "}
+                {displayFlow.consensus.outlook === "up" ? "Up" : displayFlow.consensus.outlook === "down" ? "Down" : "Flat"}{" "}
                 {displayFlow.consensus.change_pct > 0 ? "+" : ""}
                 {displayFlow.consensus.change_pct}%
               </strong>
@@ -827,7 +827,7 @@ export default function FlowsDesk({ onBack, onWatch, onNews }: Props) {
               return (
                 <li key={f.id}>
                   <i style={{ background: f.color }} />
-                  {f.label} · {f.outlook === "up" ? "Up" : "Down"} {f.change_pct > 0 ? "+" : ""}
+                  {f.label} · {f.outlook === "up" ? "Up" : f.outlook === "down" ? "Down" : "Flat"} {f.change_pct > 0 ? "+" : ""}
                   {f.change_pct}% · {f.regime}
                   {badge && (
                     <span style={{ ...BADGE_BASE, background: badge.bg, color: badge.fg }}>

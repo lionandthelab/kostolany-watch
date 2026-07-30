@@ -17,6 +17,9 @@ def test_synthetic_snapshot():
 
 
 def test_watch_rebuild_queue_preserves_requested_cache_shape():
+    # Must use a symbol that is actually in WATCH_MARKETS: priority routing is
+    # membership-based, and KS11 was retired from the watch surface.
+    symbol = api.WATCH_MARKETS[0]
     with api._watch_job_lock:
         old_running = api._watch_worker_running
         api._watch_worker_running = True
@@ -25,12 +28,12 @@ def test_watch_rebuild_queue_preserves_requested_cache_shape():
         api._watch_queued.clear()
     try:
         started = api._schedule_watch_rebuild(
-            "KS11",
+            symbol,
             ["hmm"],
             123,
             3,
         )
-        expected = ("KS11", ("hmm",), 123, 3)
+        expected = (symbol, ("hmm",), 123, 3)
         assert started
         assert expected in api._watch_queued
         assert api._watch_priority_q[0] == expected

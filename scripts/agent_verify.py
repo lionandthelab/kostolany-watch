@@ -40,6 +40,32 @@ print("leakage_smoke: OK")
     return run([exe, "-c", code])
 
 
+def pit_prefix_property() -> int:
+    """G13: pit_state must be prefix-stable on 500 random (seed, cut) probes."""
+    code = r"""
+import numpy as np, pandas as pd
+from kostolany.labels_pit import pit_state
+
+rng = np.random.default_rng(20260730)
+checked = 0
+for seed in range(5):
+    g = np.random.default_rng(seed)
+    t = np.arange(1200)
+    ret = 0.0015*np.sin(2*np.pi*t/110) + g.normal(0, 0.011, len(t))
+    px = pd.Series(100*np.exp(np.cumsum(ret)), index=pd.bdate_range("2015-01-02", periods=len(t)))
+    full = pit_state(px)
+    for cut in rng.integers(80, len(px), size=100):
+        prefix = pit_state(px.iloc[:cut])
+        pd.testing.assert_frame_equal(prefix, full.iloc[:cut])
+        checked += 1
+assert checked == 500, checked
+print(f"pit_prefix_property: OK ({checked}/500)")
+"""
+    py = ROOT / ".venv" / "Scripts" / "python.exe"
+    exe = str(py) if py.exists() else sys.executable
+    return run([exe, "-c", code])
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Kostolany agent verify gate")
     p.add_argument("--quick", action="store_true", help="Skip full pytest, leakage smoke only")
@@ -55,6 +81,10 @@ def main() -> int:
             return rc
 
     rc = leakage_smoke()
+    if rc != 0:
+        return rc
+
+    rc = pit_prefix_property()
     if rc != 0:
         return rc
 

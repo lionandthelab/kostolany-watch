@@ -25,6 +25,7 @@ _news_refreshing = False
 THEMES = {
     "money": {"label_ko": "돈·금리", "why": "유동성·기준금리·수익률 곡선 — money 게이지와 직결"},
     "credit": {"label_ko": "신용·위험", "why": "스프레드·은행·디폴트 압력 — credit 축 읽기"},
+    "crypto": {"label_ko": "가상화폐", "why": "비트코인·이더·온체인·규제 — BTC-USD 국면 맥락"},
     "korea": {"label_ko": "한국 시장", "why": "한은·수급·코스피 — KS11 국면 해석의 현지 맥락"},
     "sentiment": {"label_ko": "심리·위험선호", "why": "공포·위험선호·지정학 — sentiment 게이지 보강"},
 }
@@ -60,6 +61,16 @@ FEEDS: list[dict[str, str]] = [
         "url": (
             "https://news.google.com/rss/search?q="
             "%22credit+spread%22+OR+%22high+yield%22+OR+bank+stress+OR+default"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+    },
+    {
+        "id": "gn_crypto",
+        "theme": "crypto",
+        "source": "Google News",
+        "url": (
+            "https://news.google.com/rss/search?q="
+            "Bitcoin+OR+Ethereum+OR+crypto+OR+%22digital+asset%22+OR+ETF+SEC+crypto"
             "&hl=en-US&gl=US&ceid=US:en"
         ),
     },
@@ -104,6 +115,12 @@ DESK_LINKS: list[dict[str, str]] = [
         "url": "https://fred.stlouisfed.org/",
         "theme": "money",
         "source": "FRED",
+    },
+    {
+        "title": "CoinDesk Markets",
+        "url": "https://www.coindesk.com/markets/",
+        "theme": "crypto",
+        "source": "CoinDesk",
     },
     {
         "title": "CBOE VIX",
@@ -312,6 +329,7 @@ _FEED_PRIORITY = {
     "ecb_press": 90,
     "gn_rates": 70,
     "gn_credit": 65,
+    "gn_crypto": 68,
     "gn_korea": 75,
     "gn_sentiment": 55,
 }
@@ -319,6 +337,7 @@ _FEED_PRIORITY = {
 _THEME_PRIORITY = {
     "money": 40,
     "credit": 30,
+    "crypto": 32,
     "korea": 35,
     "sentiment": 15,
 }
@@ -340,6 +359,14 @@ def _item_importance(it: dict[str, Any]) -> float:
         ("한은", 10),
         ("default", 8),
         ("spread", 6),
+        ("bitcoin", 10),
+        ("btc", 8),
+        ("ethereum", 8),
+        ("crypto", 8),
+        ("etf", 5),
+        ("비트코인", 10),
+        ("가상화폐", 8),
+        ("암호화폐", 8),
         ("recession", 7),
         ("전쟁", 6),
         ("war", 5),

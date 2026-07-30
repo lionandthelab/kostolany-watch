@@ -25,8 +25,8 @@ from kostolany.watch_cache import (
 )
 
 
-MODEL_PATTERN = "^(hmm|gbm|ensemble|tsfm|ensemble_v3)$"
-WATCH_MARKETS = ("KS11", "^GSPC", "BTC-USD")
+MODEL_PATTERN = "^(hmm|gbm|ensemble|tsfm|ensemble_v3|momo)$"
+WATCH_MARKETS = ("^GSPC", "BTC-USD")
 WATCH_DEFAULT_MODELS = "hmm,gbm,tsfm"
 WATCH_DEFAULT_LIMIT = 360
 WATCH_DEFAULT_STRIDE = 2
@@ -148,14 +148,18 @@ def _build_watch_body(
             )
     else:
         analysts = [_build_one_analyst(symbol, mid, limit, stride) for mid in ids]
-    return {
+    body: dict[str, Any] = {
         "symbol": symbol,
         "analysts": analysts,
         "disclaimer": DISCLAIMER_KO,
-        # Measured OOS calibration so the UI can qualify the confidence number
-        # instead of rendering an uncalibrated posterior max as a percentage.
-        "calibration": calibration_payload(),
     }
+    # Measured OOS calibration so the UI can qualify the confidence number
+    # instead of rendering an uncalibrated posterior max as a percentage.
+    # Symbol-specific: an unmeasured market gets NO block, never a borrowed one.
+    calibration = calibration_payload(symbol)
+    if calibration is not None:
+        body["calibration"] = calibration
+    return body
 
 
 def _parse_model_ids(models: str) -> list[str]:
@@ -163,7 +167,7 @@ def _parse_model_ids(models: str) -> list[str]:
     if not ids:
         raise HTTPException(status_code=400, detail="models required")
     for mid in ids:
-        if mid not in {"hmm", "gbm", "ensemble", "tsfm", "ensemble_v3"}:
+        if mid not in {"hmm", "gbm", "ensemble", "tsfm", "ensemble_v3", "momo"}:
             raise HTTPException(status_code=400, detail=f"Unknown model: {mid}")
     return ids
 
@@ -210,7 +214,7 @@ def warmup_watch_markets(*, force: bool = False) -> dict[str, Any]:
 
 def ensure_watch_market(symbol: str, *, force: bool = False) -> dict[str, Any]:
     """Prioritize one market so tab switches are not stuck behind full warmup."""
-    sym = symbol.strip() or "KS11"
+    sym = symbol.strip() or "^GSPC"
     cached = read_watch_cache(
         sym,
         WATCH_DEFAULT_MODELS,
@@ -462,7 +466,7 @@ def create_app() -> FastAPI:
 
     @app.get("/watch")
     def watch_bundle(
-        symbol: str = Query("KS11"),
+        symbol: str = Query("^GSPC"),
         models: str = Query("hmm,gbm,tsfm", description="Comma-separated model ids"),
         limit: int = Query(360, ge=20, le=5000),
         stride: int = Query(2, ge=1, le=20),
@@ -527,7 +531,7 @@ def create_app() -> FastAPI:
 
     @app.get("/watch/one")
     def watch_one(
-        symbol: str = Query("KS11"),
+        symbol: str = Query("^GSPC"),
         model: str = Query("hmm", pattern=MODEL_PATTERN),
         limit: int = Query(360, ge=20, le=5000),
         stride: int = Query(2, ge=1, le=20),
@@ -538,7 +542,7 @@ def create_app() -> FastAPI:
 
     @app.post("/watch/begin-refresh")
     def watch_begin_refresh(
-        symbol: str = Query("KS11"),
+        symbol: str = Query("^GSPC"),
         models: str = Query("hmm,gbm,tsfm"),
         limit: int = Query(360, ge=20, le=5000),
         stride: int = Query(2, ge=1, le=20),
@@ -584,7 +588,7 @@ def create_app() -> FastAPI:
 
     @app.post("/watch/seal")
     def watch_seal(
-        symbol: str = Query("KS11"),
+        symbol: str = Query("^GSPC"),
         models: str = Query("hmm,gbm,tsfm"),
         limit: int = Query(360, ge=20, le=5000),
         stride: int = Query(2, ge=1, le=20),
@@ -611,7 +615,7 @@ def create_app() -> FastAPI:
 
     @app.post("/watch/ensure")
     def watch_ensure(
-        symbol: str = Query("KS11"),
+        symbol: str = Query("^GSPC"),
         force: bool = Query(False),
     ) -> dict[str, Any]:
         return ensure_watch_market(symbol, force=force)
@@ -633,7 +637,7 @@ def create_app() -> FastAPI:
 
     @app.post("/flows/ensure")
     def flows_ensure(
-        sector: str = Query("kospi", description="Prioritize this sector in the build queue"),
+        sector: str = Query("spx", description="Prioritize this sector in the build queue"),
         force: bool = Query(False),
     ) -> dict[str, Any]:
         from kostolany.flows import ensure_sector
@@ -666,7 +670,7 @@ def create_app() -> FastAPI:
 
     @app.get("/flows/history")
     def flows_history(
-        sector: str = Query("kospi", description="Sector id from /flows/sectors"),
+        sector: str = Query("spx", description="Sector id from /flows/sectors"),
         range: str = Query(
             "1y",
             description="History window: 6m | 1y | 3y | 5y",
@@ -686,7 +690,7 @@ def create_app() -> FastAPI:
 
     @app.get("/flows")
     def flows_sector(
-        sector: str = Query("kospi", description="Sector id from /flows/sectors"),
+        sector: str = Query("spx", description="Sector id from /flows/sectors"),
         refresh: bool = Query(False, description="Kick background refresh; return cache now"),
         peek: bool = Query(False, description="Cache only; 204 if miss"),
         wait: bool = Query(

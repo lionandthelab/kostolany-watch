@@ -74,8 +74,12 @@ def _investor_flow_pykrx(start: str, end: str | None = None) -> pd.DataFrame | N
 
 
 def investor_to_participation(flow: pd.DataFrame) -> pd.Series:
-    """Build a participation proxy from investor trading columns if present."""
-    # Prefer foreign + retail absolute activity
+    """Activity-level proxy (magnitude) for the participation gauge.
+
+    ``.abs()`` is intentional HERE ONLY: this series answers "how active is the
+    market", not "who is buying". The signed answer lives in
+    ``investor_signed_flows`` — never collapse the two again.
+    """
     candidates = []
     for key in flow.columns:
         k = str(key).lower()
@@ -86,6 +90,35 @@ def investor_to_participation(flow: pd.DataFrame) -> pd.Series:
     activity = sum(candidates) / max(len(candidates), 1)
     med = activity.rolling(60, min_periods=10).median().replace(0, np.nan)
     return (activity / med).clip(0, 20).rename("participation_flow")
+
+
+# Investor-class column detection across pykrx/FDR versions. Order matters:
+# "기타법인" must not be captured, and the aggregate ("전체") is skipped.
+_INVESTOR_TOKENS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("foreign_net", ("외국", "foreign")),
+    ("inst_net", ("기관", "inst")),
+    ("retail_net", ("개인", "retail", "individual")),
+)
+
+
+def investor_signed_flows(flow: pd.DataFrame) -> pd.DataFrame | None:
+    """Signed net-buy value per investor class — the sign IS the signal.
+
+    This is the one real supply-demand series the project has (Kostolany's
+    "who is buying with whose money"). Returns raw signed KRW value columns
+    ``foreign_net`` / ``inst_net`` / ``retail_net``; normalisation is the
+    feature layer's job so the cache keeps original units.
+    """
+    out: dict[str, pd.Series] = {}
+    for name, toks in _INVESTOR_TOKENS:
+        for key in flow.columns:
+            k = str(key).lower()
+            if any(tok in k for tok in toks):
+                out[name] = flow[key].astype(float)
+                break
+    if not out:
+        return None
+    return pd.DataFrame(out)
 
 
 def fetch_krx(
@@ -112,7 +145,11 @@ def fetch_krx(
     extras_parts: list[pd.DataFrame] = []
 
     if with_investor:
-        flow = _investor_flow_pykrx(start) or _investor_flow_fdr(start)
+        # NOT `a or b`: `or` calls bool() on a DataFrame and raises the moment
+        # pykrx actually returns data (latent until KRX credentials exist).
+        flow = _investor_flow_pykrx(start)
+        if flow is None or flow.empty:
+            flow = _investor_flow_fdr(start)
         if flow is not None and not flow.empty:
             part = investor_to_participation(flow)
             # z-ish participation override for gauges
@@ -124,6 +161,12 @@ def fetch_krx(
                     }
                 )
             )
+            # Signed net-buy per investor class, raw units. Cached so the
+            # point-in-time archive starts now; the feature layer decides
+            # whether/how a model may consume them (gated experiment).
+            signed = investor_signed_flows(flow)
+            if signed is not None:
+                extras_parts.append(signed.add_prefix("krx_"))
 
     extras = None
     if extras_parts:

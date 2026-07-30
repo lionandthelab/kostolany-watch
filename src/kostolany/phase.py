@@ -31,8 +31,8 @@ TWO_PI = 2.0 * math.pi
 SECTOR_WIDTH = math.pi / 3.0
 N_SECTORS = 6
 
-# Compact causal subset of ``model_matrix``. Deliberately small: 62 independent
-# legs in 16 years of KS11 support ~12 parameters, not 342.
+# Compact causal subset of ``model_matrix`` (23 columns). Deliberately small:
+# ~35-42 independent legs per market support ~12 parameters.
 DEFAULT_PHASE_FEATURES: tuple[str, ...] = (
     "ret_5",
     "ret_10",

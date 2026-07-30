@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kostolany Watch — 연구 대시보드</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface-1:   #fcfcfb;
+    --ink-1:       #0b0b0b;
+    --ink-2:       #52514e;
+    --muted:       #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --s1:          #2a78d6;  /* blue: serving arms / primary series */
+    --s2:          #eb6834;  /* orange: research candidates */
+    --s3:          #1baf7a;  /* aqua */
+    --up-wash:     rgba(42,120,214,0.10);
+    --down-wash:   rgba(227,73,72,0.10);
+    --good:        #0ca30c;
+    --warning:     #fab219;
+    --critical:    #d03b3b;
+    --good-text:   #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page:      #0d0d0d;
+      --surface-1: #1a1a19;
+      --ink-1:     #ffffff;
+      --ink-2:     #c3c2b7;
+      --muted:     #898781;
+      --grid:      #2c2c2a;
+      --baseline:  #383835;
+      --border:    rgba(255,255,255,0.10);
+      --s1:        #3987e5;
+      --s2:        #d95926;
+      --s3:        #199e70;
+      --up-wash:   rgba(57,135,229,0.14);
+      --down-wash: rgba(230,103,103,0.14);
+      --good-text: #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:      #0d0d0d;
+    --surface-1: #1a1a19;
+    --ink-1:     #ffffff;
+    --ink-2:     #c3c2b7;
+    --muted:     #898781;
+    --grid:      #2c2c2a;
+    --baseline:  #383835;
+    --border:    rgba(255,255,255,0.10);
+    --s1:        #3987e5;
+    --s2:        #d95926;
+    --s3:        #199e70;
+    --up-wash:   rgba(57,135,229,0.14);
+    --down-wash: rgba(230,103,103,0.14);
+    --good-text: #0ca30c;
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page);
+    color: var(--ink-1);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding-bottom: 80px;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+
+  header.top {
+    position: sticky; top: 0; z-index: 30;
+    background: var(--page);
+    border-bottom: 1px solid var(--grid);
+    margin-bottom: 24px;
+  }
+  .top-inner {
+    max-width: 1180px; margin: 0 auto; padding: 12px 20px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .top h1 { font-size: 16px; font-weight: 650; }
+  .top nav { display: flex; gap: 4px; flex-wrap: wrap; }
+  .top nav a {
+    color: var(--ink-2); text-decoration: none; font-size: 12.5px;
+    padding: 4px 9px; border-radius: 6px;
+  }
+  .top nav a:hover { background: var(--surface-1); color: var(--ink-1); }
+  .spacer { flex: 1; }
+  button.theme {
+    background: var(--surface-1); color: var(--ink-2);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font: inherit; font-size: 12.5px;
+  }
+
+  section { margin: 36px 0; }
+  h2 { font-size: 19px; font-weight: 650; margin-bottom: 4px; }
+  h3 { font-size: 14.5px; font-weight: 600; margin: 18px 0 8px; }
+  .sub { color: var(--ink-2); font-size: 13px; margin-bottom: 14px; }
+
+  .card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 12px 0;
+  }
+
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    padding: 1.5px 8px; border-radius: 999px; vertical-align: 1px;
+    border: 1px solid var(--border); color: var(--ink-2);
+  }
+  .badge.oos      { color: var(--good-text); border-color: var(--good-text); }
+  .badge.insample { color: var(--critical);  border-color: var(--critical); }
+  .badge.evalonly { color: var(--warning);   border-color: var(--warning); }
+  .badge.pending  { color: var(--muted); }
+
+  /* stat tiles */
+  .tiles { display: flex; gap: 12px; flex-wrap: wrap; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px; min-width: 150px; flex: 0 1 auto;
+  }
+  .tile .lab { font-size: 12px; color: var(--ink-2); }
+  .tile .val { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .tile .note { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+  /* pipeline flow */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
+  .fnode {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; min-width: 150px; flex: 1 1 150px;
+  }
+  .fnode .t { font-weight: 600; font-size: 13px; }
+  .fnode .d { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; }
+  .fnode .m { font-size: 11.5px; color: var(--muted); margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .farrow { align-self: center; color: var(--muted); padding: 0 8px; font-size: 16px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  th { color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll-x { overflow-x: auto; }
+
+  svg text { font: 11.5px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink-2); }
+  svg .tick { font-variant-numeric: tabular-nums; fill: var(--muted); }
+  svg .val-label { fill: var(--ink-1); font-weight: 600; }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin: 6px 0 2px; }
+  .legend .key { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .legend .line-key { width: 14px; height: 2px; display: inline-block; border-radius: 1px; }
+
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 99; display: none;
+    background: var(--surface-1); color: var(--ink-1);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.13);
+    max-width: 320px;
+  }
+  #tooltip .tt-title { font-weight: 600; margin-bottom: 2px; }
+  #tooltip .tt-row { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  .disclaimer {
+    margin-top: 46px; padding: 14px 18px; border: 1px solid var(--border);
+    border-radius: 10px; color: var(--muted); font-size: 12px;
+  }
+  .md h1, .md h2, .md h3 { margin: 16px 0 6px; }
+  .md h1 { font-size: 17px; } .md h2 { font-size: 15px; } .md h3 { font-size: 13.5px; }
+  .md p, .md li { font-size: 13px; color: var(--ink-2); margin: 6px 0; }
+  .md code { background: var(--page); border: 1px solid var(--grid); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  .md pre { background: var(--page); border: 1px solid var(--grid); border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-size: 12px; line-height: 1.45; }
+  .md table { margin: 8px 0; }
+  .md strong { color: var(--ink-1); }
+  details.raw summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 8px; }
+  details.raw pre { background: var(--page); border: 1px solid var(--grid); border-radius: 8px; padding: 10px; overflow-x: auto; font-size: 11px; max-height: 400px; }
+</style>
+</head>
+<body>
+<div id="tooltip"></div>
+<header class="top"><div class="top-inner">
+  <h1>Kostolany Watch — 연구 대시보드</h1>
+  <nav>
+    <a href="#flow">파이프라인</a>
+    <a href="#inventory">데이터</a>
+    <a href="#diagnostics">피처·라벨</a>
+    <a href="#measured">실측 성능</a>
+    <a href="#serving">서빙 스냅샷</a>
+    <a href="#log">결정·사전등록</a>
+    <a href="#sota">SOTA 설계</a>
+  </nav>
+  <span class="spacer"></span>
+  <span id="built-at" style="color:var(--muted);font-size:12px"></span>
+  <button class="theme" id="theme-btn">테마</button>
+</div></header>
+
+<main>
+  <div class="legend" style="margin-bottom:18px">
+    <span class="key"><span class="badge oos">OOS</span> purged walk-forward 밖에서 측정된 값</span>
+    <span class="key"><span class="badge insample">IN-SAMPLE</span> 전체 데이터로 학습한 모델이 같은 데이터를 예측 — 성능 근거 아님</span>
+    <span class="key"><span class="badge evalonly">EVAL ONLY</span> gold 라벨: 미래 참조 — 채점 전용, 학습 금지</span>
+  </div>
+
+  <section id="flow">
+    <h2>① 추론 파이프라인</h2>
+    <p class="sub">데이터가 화면의 숫자가 되기까지의 전 경로. 각 노드의 수치는 아래 섹션 실데이터에서 산출.</p>
+    <div id="flow-diagram"></div>
+  </section>
+
+  <section id="inventory">
+    <h2>② 데이터 인벤토리 <span class="badge">artifacts/cache/</span></h2>
+    <p class="sub">이 시스템이 실제로 바라보는 모든 데이터. 신선도와 범위 포함.</p>
+    <div class="card scroll-x" id="inventory-table"></div>
+  </section>
+
+  <section id="diagnostics">
+    <h2>③ 피처·라벨 진단</h2>
+    <p class="sub">모델 입력의 실체 — 유효 랭크, 라벨 분포, weak(학습)/gold(채점) 불일치.</p>
+    <div id="diagnostics-body"></div>
+  </section>
+
+  <section id="measured">
+    <h2>④ 실측 성능 <span class="badge oos">OOS</span></h2>
+    <p class="sub">purged walk-forward · leg-block 부트스트랩 95% CI. 기준선(상수·무작위)을 함께 표시 — 기준선을 못 이기면 스킬이 아니다.</p>
+    <div id="measured-body"></div>
+  </section>
+
+  <section id="serving">
+    <h2>⑤ 서빙 스냅샷 <span class="badge insample">IN-SAMPLE</span></h2>
+    <p class="sub">지금 API가 내보내는 값의 재현. 전체 구간 적합 후 같은 구간 예측이므로 성능 근거로 읽지 말 것.</p>
+    <div id="serving-body"></div>
+  </section>
+
+  <section id="log">
+    <h2>⑥ 연구 결정 · 사전등록</h2>
+    <p class="sub">결과를 보기 전에 박아둔 숫자들. 통과하는 쪽을 사후에 고르는 것을 금지하는 장치.</p>
+    <div id="log-body"></div>
+  </section>
+
+  <section id="sota">
+    <h2>⑦ SOTA 모델 설계</h2>
+    <p class="sub">4개 독립 설계 → 렌즈당 3인 적대 검증 → 종합. (워크플로우 산출)</p>
+    <div id="sota-body" class="card md">아직 산출 전 — 설계 워크플로우 완료 후 이 섹션이 채워집니다.</div>
+  </section>
+
+  <div class="disclaimer" id="disclaimer">
+    본 정보는 교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.
+    투자 판단과 손실에 대한 책임은 이용자 본인에게 있습니다.
+  </div>
+</main>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+/* ---------------------------------------------------------------- helpers */
+const $ = (sel) => document.querySelector(sel);
+const el = (tag, attrs = {}, ...children) => {
+  const ns = ["svg","g","rect","line","circle","path","text","polyline"].includes(tag);
+  const node = ns ? document.createElementNS("http://www.w3.org/2000/svg", tag)
+                  : document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "text") node.textContent = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) if (c != null) node.appendChild(c);
+  return node;
+};
+const fmt = (v, d = 4) => (v == null || Number.isNaN(v)) ? "—" : (+v).toFixed(d);
+const pct = (v, d = 1) => (v == null) ? "—" : (100 * v).toFixed(d) + "%";
+
+const tooltip = $("#tooltip");
+function showTip(evt, title, rows) {
+  tooltip.innerHTML = "";
+  tooltip.appendChild(el("div", { class: "tt-title", text: title }));
+  for (const r of rows) tooltip.appendChild(el("div", { class: "tt-row", text: r }));
+  tooltip.style.display = "block";
+  const pad = 14;
+  let x = evt.clientX + pad, y = evt.clientY + pad;
+  const w = tooltip.offsetWidth, h = tooltip.offsetHeight;
+  if (x + w > innerWidth - 8) x = evt.clientX - w - pad;
+  if (y + h > innerHeight - 8) y = evt.clientY - h - pad;
+  tooltip.style.left = x + "px"; tooltip.style.top = y + "px";
+}
+function hideTip() { tooltip.style.display = "none"; }
+
+/* theme toggle */
+$("#theme-btn").addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const preferDark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = cur === "dark" ? "light" : cur === "light" ? "dark" : (preferDark ? "light" : "dark");
+  document.documentElement.setAttribute("data-theme", next);
+});
+
+$("#built-at").textContent = "빌드 " + (DATA?.built_at ?? "").replace("T", " ").slice(0, 16) + " UTC";
+
+/* ------------------------------------------------------------ ① pipeline */
+(function renderFlow() {
+  const mkts = DATA.markets || {};
+  const anyM = Object.values(mkts).find(m => !m.error) || {};
+  const nInv = (DATA.inventory || []).length;
+  const expRuns = DATA.experiments || [];
+  const servedRuns = expRuns.filter(r => r.serving_arms_included);
+  const wrap = $("#flow-diagram");
+
+  const row1 = el("div", { class: "flow" });
+  const nodes = [
+    ["데이터 소스", "yfinance · pykrx/FDR · FRED · RSS", `캐시 파일 ${nInv}개`],
+    ["커넥터 + 캐시", "connectors/*.py → artifacts/cache", (anyM.extra_columns||[]).length ? `extras: ${(anyM.extra_columns||[]).join(", ")}` : "extras 없음(시장별)"],
+    ["피처 23종", "features.py — close·volume 롤링 변환", anyM.effective_rank ? `유효 랭크 ${anyM.effective_rank} / ${anyM.n_features_model}` : "—"],
+    ["weak 라벨(학습)", "labels.py — 6 프로토타입 argmax·인과적", anyM.weak_gold_agreement != null ? `gold와 일치 ${pct(anyM.weak_gold_agreement)}` : "—"],
+    ["모델 3팔", "리듬이 HMM · 눈치왕 GBM(cs=0) · 파도꾼 TSFM앙상블", servedRuns.length ? `서빙팔 실측 런 ${servedRuns.length}건` : "서빙팔 실측 대기"],
+    ["Watch 페이로드", "6국면 확률 + 게이지 + 달걀좌표 + 신뢰밴드", "calibration 실측 각주 첨부"],
+  ];
+  nodes.forEach(([t, d, m], i) => {
+    if (i) row1.appendChild(el("div", { class: "farrow", text: "→" }));
+    row1.appendChild(el("div", { class: "fnode" },
+      el("div", { class: "t", text: t }),
+      el("div", { class: "d", text: d }),
+      el("div", { class: "m", text: m })));
+  });
+  wrap.appendChild(row1);
+
+  const row2 = el("div", { class: "flow", style: "margin-top:10px" });
+  [
+    ["국면 확률 벡터", "각 애널리스트의 6국면 proba", null],
+    ["Flows 3팔", "regime_prior 상수 2팔 + pooled/TSFM 학습 1팔", "상수팔 진폭 ±3.4% 고정"],
+    ["컨센서스", "3팔 종단값 단순평균 → outlook", "화면 도달값 — 채점 이력 0회 (배선 작업 중)"],
+  ].forEach(([t, d, m], i) => {
+    if (i) row2.appendChild(el("div", { class: "farrow", text: "→" }));
+    row2.appendChild(el("div", { class: "fnode" },
+      el("div", { class: "t", text: t }),
+      el("div", { class: "d", text: d }),
+      m ? el("div", { class: "m", text: m }) : null));
+  });
+  wrap.appendChild(row2);
+})();
+
+/* ----------------------------------------------------------- ② inventory */
+(function renderInventory() {
+  const rows = DATA.inventory || [];
+  const t = el("table");
+  t.appendChild(el("thead", {}, el("tr", {},
+    el("th", { text: "파일" }), el("th", { text: "종류" }),
+    el("th", { class: "num", text: "크기(KB)" }), el("th", { class: "num", text: "행" }),
+    el("th", { text: "범위" }), el("th", { text: "수정" }), el("th", { text: "비고/키" }))));
+  const tb = el("tbody");
+  for (const r of rows) {
+    tb.appendChild(el("tr", {},
+      el("td", { text: r.file }),
+      el("td", { text: r.kind }),
+      el("td", { class: "num", text: r.size_kb?.toLocaleString?.() ?? "—" }),
+      el("td", { class: "num", text: r.rows != null ? r.rows.toLocaleString() : "—" }),
+      el("td", { text: r.range ?? "—" }),
+      el("td", { text: r.modified }),
+      el("td", { text: r.note ?? (r.columns ? r.columns.slice(0, 6).join(", ") + (r.columns.length > 6 ? " …" : "") : "—") })));
+  }
+  t.appendChild(tb);
+  $("#inventory-table").appendChild(t);
+})();
+
+/* --------------------------------------------------- ③ diagnostics charts */
+const REGIMES = ["A1","A2","A3","B1","B2","B3"];
+
+function groupedBarChart(weakDist, goldDist) {
+  const W = 560, H = 220, padL = 36, padB = 26, padT = 14;
+  const bw = 18, gap = 2, groupGap = 26;
+  const maxV = Math.max(0.01, ...REGIMES.flatMap(k => [weakDist[k] || 0, goldDist[k] || 0]));
+  const yMax = Math.ceil(maxV * 20) / 20;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "max-width:560px" });
+  const plotH = H - padB - padT;
+  const y = v => padT + plotH * (1 - v / yMax);
+  for (let g = 0; g <= 4; g++) {
+    const v = yMax * g / 4;
+    svg.appendChild(el("line", { x1: padL, x2: W - 6, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: padL - 5, y: y(v) + 4, "text-anchor": "end", class: "tick", text: pct(v, 0) }));
+  }
+  REGIMES.forEach((k, i) => {
+    const x0 = padL + 14 + i * (2 * bw + gap + groupGap);
+    const wv = weakDist[k] || 0, gv = goldDist[k] || 0;
+    const mk = (x, v, color, name) => {
+      const r = el("rect", {
+        x, y: y(v), width: bw, height: Math.max(0, y(0) - y(v)),
+        rx: 4, fill: color,
+        onmousemove: e => showTip(e, `${k} — ${name}`, [pct(v, 2)]), onmouseleave: hideTip });
+      svg.appendChild(r);
+    };
+    mk(x0, wv, "var(--s1)", "weak(학습)");
+    mk(x0 + bw + gap, gv, "var(--s2)", "gold(채점·EVAL ONLY)");
+    svg.appendChild(el("text", { x: x0 + bw + gap / 2, y: H - 8, "text-anchor": "middle", text: k }));
+  });
+  svg.appendChild(el("line", { x1: padL, x2: W - 6, y1: y(0), y2: y(0), stroke: "var(--baseline)", "stroke-width": 1 }));
+  return svg;
+}
+
+function priceLegChart(series) {
+  if (!series?.length) return el("div", { text: "—" });
+  const W = 1120, H = 240, padL = 52, padR = 10, padT = 12, padB = 24;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%" });
+  const xs = series.map((_, i) => i);
+  const vals = series.map(d => d.close);
+  const vMin = Math.min(...vals), vMax = Math.max(...vals);
+  const x = i => padL + (W - padL - padR) * (i / Math.max(1, xs.length - 1));
+  const y = v => padT + (H - padT - padB) * (1 - (v - vMin) / Math.max(1e-9, vMax - vMin));
+  // regime leg washes: A* up / B* down
+  let runStart = 0;
+  for (let i = 1; i <= series.length; i++) {
+    const cur = series[Math.min(i, series.length - 1)], prev = series[i - 1];
+    const side = g => (g == null ? null : (g <= 2 ? "up" : "down"));
+    if (i === series.length || side(cur.gold) !== side(prev.gold)) {
+      const s = side(prev.gold);
+      if (s) svg.appendChild(el("rect", {
+        x: x(runStart), y: padT, width: Math.max(0, x(i - 1) - x(runStart)),
+        height: H - padT - padB,
+        fill: s === "up" ? "var(--up-wash)" : "var(--down-wash)" }));
+      runStart = i;
+    }
+  }
+  for (let g = 0; g <= 3; g++) {
+    const v = vMin + (vMax - vMin) * g / 3;
+    svg.appendChild(el("line", { x1: padL, x2: W - padR, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: padL - 6, y: y(v) + 4, "text-anchor": "end", class: "tick", text: v.toLocaleString(undefined, { maximumFractionDigits: 0 }) }));
+  }
+  const pts = series.map((d, i) => `${x(i)},${y(d.close)}`).join(" ");
+  svg.appendChild(el("polyline", { points: pts, fill: "none", stroke: "var(--s1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  // x ticks: ~6 dates
+  for (let k = 0; k < 6; k++) {
+    const i = Math.round((series.length - 1) * k / 5);
+    svg.appendChild(el("text", { x: x(i), y: H - 6, "text-anchor": "middle", class: "tick", text: series[i].date.slice(0, 7) }));
+  }
+  // hover crosshair
+  const hoverDot = el("circle", { r: 5, fill: "var(--s1)", stroke: "var(--surface-1)", "stroke-width": 2, style: "display:none" });
+  svg.appendChild(hoverDot);
+  svg.addEventListener("mousemove", e => {
+    const rect = svg.getBoundingClientRect();
+    const px = (e.clientX - rect.left) * (W / rect.width);
+    const i = Math.max(0, Math.min(series.length - 1, Math.round((px - padL) / (W - padL - padR) * (series.length - 1))));
+    const d = series[i];
+    hoverDot.setAttribute("cx", x(i)); hoverDot.setAttribute("cy", y(d.close));
+    hoverDot.style.display = "";
+    showTip(e, d.date, [`종가 ${d.close.toLocaleString()}`, `gold 국면 ${d.gold != null ? REGIMES[d.gold] : "—"} (EVAL ONLY)`]);
+  });
+  svg.addEventListener("mouseleave", () => { hoverDot.style.display = "none"; hideTip(); });
+  return svg;
+}
+
+(function renderDiagnostics() {
+  const body = $("#diagnostics-body");
+  for (const [sym, m] of Object.entries(DATA.markets || {})) {
+    const card = el("div", { class: "card" });
+    const served = (DATA.served_markets || []).includes(sym);
+    card.appendChild(el("h3", {}, document.createTextNode(sym + " "),
+      el("span", { class: "badge", text: served ? "서빙 시장" : "연구 전용" })));
+    if (m.error) {
+      card.appendChild(el("p", { class: "sub", text: "로드 실패: " + m.error }));
+      body.appendChild(card); continue;
+    }
+    const tiles = el("div", { class: "tiles" });
+    const tile = (lab, val, note) => el("div", { class: "tile" },
+      el("div", { class: "lab", text: lab }), el("div", { class: "val", text: val }),
+      note ? el("div", { class: "note", text: note }) : null);
+    tiles.appendChild(tile("행 수", (m.n_rows ?? 0).toLocaleString(), m.range));
+    tiles.appendChild(tile("피처 유효 랭크", m.effective_rank ?? "—", `모델 입력 ${m.n_features_model}열 중`));
+    tiles.appendChild(tile("weak↔gold 일치", pct(m.weak_gold_agreement), "학습 타깃을 완벽 재현해도 이 값이 정확도 상한"));
+    card.appendChild(tiles);
+
+    card.appendChild(el("h3", { text: "라벨 분포 — weak(학습) vs gold(채점)" }));
+    const lg = el("div", { class: "legend" },
+      el("span", { class: "key" }, el("span", { class: "swatch", style: "background:var(--s1)" }), document.createTextNode("weak(학습·인과)")),
+      el("span", { class: "key" }, el("span", { class: "swatch", style: "background:var(--s2)" }), document.createTextNode("gold(채점)"), document.createTextNode(" "), el("span", { class: "badge evalonly", text: "EVAL ONLY" })));
+    card.appendChild(lg);
+    card.appendChild(groupedBarChart(m.weak_dist || {}, m.gold_dist || {}));
+
+    card.appendChild(el("h3", { text: "주간 종가 + gold 레그" }));
+    card.appendChild(el("div", { class: "legend" },
+      el("span", { class: "key" }, el("span", { class: "line-key", style: "background:var(--s1)" }), document.createTextNode("주간 종가")),
+      el("span", { class: "key" }, el("span", { class: "swatch", style: "background:var(--up-wash);border:1px solid var(--border)" }), document.createTextNode("gold 상승레그 A*")),
+      el("span", { class: "key" }, el("span", { class: "swatch", style: "background:var(--down-wash);border:1px solid var(--border)" }), document.createTextNode("gold 하락레그 B*"))));
+    card.appendChild(priceLegChart(m.price_weekly));
+
+    if (m.top_corr_pairs?.length) {
+      card.appendChild(el("h3", { text: "피처 상관 상위쌍 (|r|)" }));
+      const t = el("table");
+      t.appendChild(el("thead", {}, el("tr", {}, el("th", { text: "피처 A" }), el("th", { text: "피처 B" }), el("th", { class: "num", text: "|r|" }))));
+      const tb = el("tbody");
+      for (const p of m.top_corr_pairs) tb.appendChild(el("tr", {},
+        el("td", { text: p.a }), el("td", { text: p.b }), el("td", { class: "num", text: fmt(p.corr, 3) })));
+      t.appendChild(tb); card.appendChild(el("div", { class: "scroll-x" }, t));
+    }
+    body.appendChild(card);
+  }
+})();
+
+/* ------------------------------------------------- ④ measured performance */
+const GROUP_OF = (name) => /shipped|serving/.test(name) ? "serving"
+  : /phase_head/.test(name) ? "research" : "baseline";
+const GROUP_COLOR = { serving: "var(--s1)", research: "var(--s2)", baseline: "var(--muted)" };
+const GROUP_LABEL = { serving: "서빙 팔", research: "연구 후보", baseline: "기준선" };
+
+function dotIntervalChart(cands, metric, ciKey, refs, opts = {}) {
+  const lower = opts.lowerBetter;
+  const W = 560, rowH = 26, padL = 158, padR = 46, padT = 24, padB = 24;
+  const H = padT + padB + cands.length * rowH;
+  const vals = cands.flatMap(c => [(c[metric] ?? null), ...((c[ciKey]) || [])]).filter(v => v != null);
+  refs.forEach(r => vals.push(r.v));
+  let vMin = Math.min(...vals), vMax = Math.max(...vals);
+  const span = (vMax - vMin) || 0.1; vMin -= span * 0.08; vMax += span * 0.08;
+  const x = v => padL + (W - padL - padR) * ((v - vMin) / (vMax - vMin));
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "max-width:560px" });
+  for (let g = 0; g <= 4; g++) {
+    const v = vMin + (vMax - vMin) * g / 4;
+    svg.appendChild(el("line", { x1: x(v), x2: x(v), y1: padT - 4, y2: H - padB, stroke: "var(--grid)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: x(v), y: H - 8, "text-anchor": "middle", class: "tick", text: fmt(v, 2) }));
+  }
+  for (const r of refs) {
+    svg.appendChild(el("line", { x1: x(r.v), x2: x(r.v), y1: padT - 4, y2: H - padB, stroke: "var(--baseline)", "stroke-width": 1.5 }));
+    svg.appendChild(el("text", { x: x(r.v), y: padT - 10, "text-anchor": "middle", class: "tick", text: r.label }));
+  }
+  cands.forEach((c, i) => {
+    const cy = padT + i * rowH + rowH / 2;
+    const color = GROUP_COLOR[GROUP_OF(c.name)];
+    svg.appendChild(el("text", { x: padL - 8, y: cy + 4, "text-anchor": "end", text: c.name, style: "fill:var(--ink-1)" }));
+    const ci = c[ciKey];
+    if (ci) svg.appendChild(el("line", { x1: x(ci[0]), x2: x(ci[1]), y1: cy, y2: cy, stroke: color, "stroke-width": 2, "stroke-linecap": "round" }));
+    if (c[metric] != null) {
+      svg.appendChild(el("circle", {
+        cx: x(c[metric]), cy, r: 5, fill: color, stroke: "var(--surface-1)", "stroke-width": 2,
+        onmousemove: e => showTip(e, c.name, [
+          `${metric} ${fmt(c[metric])}`,
+          ci ? `95% CI [${fmt(ci[0])}, ${fmt(ci[1])}]` : "CI 없음",
+          lower ? "낮을수록 좋음" : "높을수록 좋음"]),
+        onmouseleave: hideTip }));
+      svg.appendChild(el("text", { x: x(c[metric]) + 9, y: cy - 7, class: "tick", text: fmt(c[metric], 3) }));
+    }
+  });
+  return svg;
+}
+
+(function renderMeasured() {
+  const body = $("#measured-body");
+  const runs = DATA.experiments || [];
+  if (!runs.length) { body.appendChild(el("div", { class: "card", text: "실험 산출물이 없습니다." })); return; }
+  const legend = () => el("div", { class: "legend" },
+    ...Object.entries(GROUP_LABEL).map(([g, lab]) => el("span", { class: "key" },
+      el("span", { class: "swatch", style: `background:${GROUP_COLOR[g]}` }), document.createTextNode(lab))));
+
+  for (const run of [...runs].reverse()) {
+    const card = el("div", { class: "card" });
+    card.appendChild(el("h3", {}, document.createTextNode(`${run.symbol} `),
+      el("span", { class: "badge oos", text: "OOS" }),
+      document.createTextNode(` — ${run.artifact}`)));
+    card.appendChild(el("p", { class: "sub", text:
+      `OOS ${run.n_oos?.toLocaleString?.() ?? "—"}봉 · 독립 레그 ${run.n_legs ?? "—"}개 · ${run.folds}폴드` +
+      (run.serving_arms_included ? " · 서빙 팔 3종 포함" : " · 서빙 팔 미포함(구 실험)") +
+      (run.enrich_fred ? " · FRED extras" : "") }));
+    card.appendChild(legend());
+
+    const cands = run.candidates || [];
+    const grid = el("div", { style: "display:flex;gap:24px;flex-wrap:wrap" });
+    const block = (title, node) => el("div", { style: "flex:1 1 480px;min-width:380px" }, el("h3", { text: title }), node);
+    grid.appendChild(block("6국면 정확도 (exact-6) — 우연 0.167",
+      dotIntervalChart(cands, "exact6", "exact6_ci", [{ v: 1 / 6, label: "우연" }])));
+    grid.appendChild(block("Brier (낮을수록 좋음)",
+      dotIntervalChart(cands, "brier", "brier_ci",
+        [{ v: (cands.find(c => c.name === "prior_shrunk")?.brier ?? 0.1414), label: "상수-사전" }], { lowerBetter: true })));
+    grid.appendChild(block("ECE 보정오차 (낮을수록 좋음)",
+      dotIntervalChart(cands, "ece", "ece_ci",
+        [{ v: (cands.find(c => c.name === "prior_shrunk")?.ece ?? 0.0442), label: "상수-사전" }], { lowerBetter: true })));
+    grid.appendChild(block("인접 포함 정확도 — 구조적 하한 0.500",
+      dotIntervalChart(cands, "adjacent", "adjacent_ci", [{ v: 0.5, label: "구조 하한" }])));
+    card.appendChild(grid);
+
+    // factorisation tripwire table
+    card.appendChild(el("h3", { text: "정합성 트립와이어 — side × third|side = exact6 (자유도 진단)" }));
+    const t = el("table");
+    t.appendChild(el("thead", {}, el("tr", {},
+      el("th", { text: "후보" }), el("th", { class: "num", text: "side(상/하 레그)" }),
+      el("th", { class: "num", text: "third|side" }), el("th", { class: "num", text: "exact6" }),
+      el("th", { class: "num", text: "gap" }), el("th", { text: "ok" }))));
+    const tb = el("tbody");
+    for (const c of cands) {
+      const f = c.factorisation || {};
+      tb.appendChild(el("tr", {},
+        el("td", { text: c.name }),
+        el("td", { class: "num", text: fmt(f.side_accuracy) }),
+        el("td", { class: "num", text: fmt(f.third_accuracy_given_side) }),
+        el("td", { class: "num", text: fmt(f.exact6) }),
+        el("td", { class: "num", text: fmt(f.product_gap) }),
+        el("td", { text: f.ok ? "✓" : "✗" })));
+    }
+    t.appendChild(tb);
+    card.appendChild(el("div", { class: "scroll-x" }, t));
+
+    if (run.warnings?.length) {
+      const w = el("div", { style: "margin-top:10px" });
+      for (const msg of run.warnings) w.appendChild(el("p", { class: "sub", text: "⚠ " + msg }));
+      card.appendChild(w);
+    }
+    const raw = el("details", { class: "raw" }, el("summary", { text: "paired leg-block bootstrap 원자료" }),
+      el("pre", { text: JSON.stringify(run.paired, null, 2) }));
+    card.appendChild(raw);
+    body.appendChild(card);
+  }
+
+  // ---- Flows 컨센서스 실측: 화면에 뜨는 숫자의 첫 채점 ----
+  const consRuns = DATA.consensus || [];
+  const consCard = el("div", { class: "card" });
+  consCard.appendChild(el("h3", {}, document.createTextNode("Flows 컨센서스 — 출고값 채점 "),
+    el("span", { class: "badge oos", text: "OOS" })));
+  if (!consRuns.length) {
+    consCard.appendChild(el("p", { class: "sub", text:
+      "실행 중/미실행. 사전등록 P-CONS-1: 진폭비 ≈ 0.4, skill_vs_trivial < 0 (3시장 중 ≥2)를 결과를 보기 전에 등록함." }));
+  } else {
+    for (const run of [...consRuns].reverse()) {
+      consCard.appendChild(el("p", { class: "sub", text:
+        `${run.artifact} · 학습팔=${run.constraints?.learned_arm ?? "—"} · 조립=serving과 동일 함수` }));
+      const t = el("table");
+      t.appendChild(el("thead", {}, el("tr", {},
+        el("th", { text: "시장" }), el("th", { class: "num", text: "n" }),
+        el("th", { class: "num", text: "적중" }), el("th", { class: "num", text: "trivial 기준" }),
+        el("th", { class: "num", text: "skill" }), el("th", { class: "num", text: "진폭비" }),
+        el("th", { text: "95% CI" }), el("th", { class: "num", text: "상관" }),
+        el("th", { text: "P-CONS-1 판정" }))));
+      const tb = el("tbody");
+      for (const [sym, m] of Object.entries(run.markets || {})) {
+        const trivial = Math.max(m.always_up_hit, 1 - m.always_up_hit);
+        const ampNear = m.amplitude_ratio < 0.55;   // 사전등록 예측 ≈0.4 근방
+        const negSkill = m.skill_vs_trivial < 0;
+        tb.appendChild(el("tr", {},
+          el("td", { text: sym }),
+          el("td", { class: "num", text: m.n_origins }),
+          el("td", { class: "num", text: fmt(m.direction_hit, 3) }),
+          el("td", { class: "num", text: fmt(trivial, 3) }),
+          el("td", { class: "num", text: (m.skill_vs_trivial >= 0 ? "+" : "") + fmt(m.skill_vs_trivial, 3) }),
+          el("td", { class: "num", text: fmt(m.amplitude_ratio, 3) }),
+          el("td", { text: `[${fmt(m.direction_ci_low, 3)}, ${fmt(m.direction_ci_high, 3)}]` }),
+          el("td", { class: "num", text: fmt(m.correlation, 3) }),
+          el("td", { text: `${ampNear ? "진폭예측 부합" : "진폭예측 불부합"} · ${negSkill ? "스킬<0" : "스킬≥0"}` })));
+      }
+      t.appendChild(tb);
+      consCard.appendChild(el("div", { class: "scroll-x" }, t));
+      if (Object.keys(run.errors || {}).length) {
+        consCard.appendChild(el("p", { class: "sub", text: "오류: " + JSON.stringify(run.errors) }));
+      }
+    }
+  }
+  body.appendChild(consCard);
+})();
+
+/* -------------------------------------------------------- ⑤ serving snap */
+function probColumns(probs) {
+  const W = 320, H = 130, padB = 22, padT = 16, bw = 22, gap = 2;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "max-width:320px" });
+  const maxV = Math.max(0.05, ...REGIMES.map(k => probs[k] || 0));
+  const y = v => padT + (H - padT - padB) * (1 - v / maxV);
+  const argmax = REGIMES.reduce((a, b) => (probs[a] || 0) >= (probs[b] || 0) ? a : b);
+  REGIMES.forEach((k, i) => {
+    const x = 20 + i * (bw + gap + 24);
+    const v = probs[k] || 0;
+    svg.appendChild(el("rect", {
+      x, y: y(v), width: bw, height: Math.max(0.5, y(0) - y(v)), rx: 4, fill: "var(--s1)",
+      opacity: k === argmax ? 1 : 0.45,
+      onmousemove: e => showTip(e, k, [pct(v, 2)]), onmouseleave: hideTip }));
+    svg.appendChild(el("text", { x: x + bw / 2, y: H - 6, "text-anchor": "middle", text: k }));
+    if (k === argmax) svg.appendChild(el("text", { x: x + bw / 2, y: y(v) - 5, "text-anchor": "middle", class: "val-label", text: pct(v, 0) }));
+  });
+  svg.appendChild(el("line", { x1: 12, x2: W - 8, y1: y(0), y2: y(0), stroke: "var(--baseline)", "stroke-width": 1 }));
+  return svg;
+}
+
+(function renderServing() {
+  const body = $("#serving-body");
+  let any = false;
+  for (const [sym, m] of Object.entries(DATA.markets || {})) {
+    const snap = m.serving_snapshot;
+    if (!snap || snap.error || !(DATA.served_markets || []).includes(sym)) continue;
+    any = true;
+    const card = el("div", { class: "card" });
+    card.appendChild(el("h3", {}, document.createTextNode(sym + " — asof "),
+      document.createTextNode(Object.values(snap.analysts)[0]?.asof ?? "—"),
+      document.createTextNode(" "), el("span", { class: "badge insample", text: "IN-SAMPLE" })));
+    const grid = el("div", { style: "display:flex;gap:20px;flex-wrap:wrap" });
+    const NAME = { hmm: "리듬이 (HMM)", gbm: "눈치왕 (GBM)", tsfm: "파도꾼 (TSFM앙상블)" };
+    for (const [mid, s] of Object.entries(snap.analysts)) {
+      const cell = el("div", { style: "flex:1 1 300px;min-width:280px" });
+      cell.appendChild(el("h3", { text: `${NAME[mid] ?? mid} — ${s.regime} · 확신도 ${pct(s.confidence)}` }));
+      cell.appendChild(probColumns(s.probabilities));
+      grid.appendChild(cell);
+    }
+    card.appendChild(grid);
+    if (m.gauges_last) {
+      const g = m.gauges_last;
+      card.appendChild(el("p", { class: "sub", text:
+        `게이지 — 거래량 ${g.volume} · 참여 ${g.participation} · 돈 ${g.money} · 심리 ${g.sentiment}` }));
+    }
+    body.appendChild(card);
+  }
+  if (!any) body.appendChild(el("div", { class: "card", text: "서빙 스냅샷 없음 (--no-fit 빌드)" }));
+})();
+
+/* ------------------------------------------------------------- ⑥ log */
+(function renderLog() {
+  const body = $("#log-body");
+  const log = DATA.research_log || {};
+  const card1 = el("div", { class: "card" });
+  card1.appendChild(el("h3", { text: "결정 로그" }));
+  const t1 = el("table");
+  t1.appendChild(el("thead", {}, el("tr", {},
+    el("th", { text: "일자" }), el("th", { text: "발견" }), el("th", { text: "조치" }), el("th", { text: "상태" }))));
+  const tb1 = el("tbody");
+  for (const d of log.decisions || []) tb1.appendChild(el("tr", {},
+    el("td", { text: d.date }), el("td", { text: d.what }), el("td", { text: d.action }),
+    el("td", {}, el("span", { class: "badge " + (d.status === "done" ? "oos" : "pending"), text: d.status }))));
+  t1.appendChild(tb1); card1.appendChild(el("div", { class: "scroll-x" }, t1));
+  body.appendChild(card1);
+
+  const card2 = el("div", { class: "card" });
+  card2.appendChild(el("h3", { text: "사전등록 (결과를 보기 전에 박아둔 숫자)" }));
+  const t2 = el("table");
+  t2.appendChild(el("thead", {}, el("tr", {},
+    el("th", { text: "ID" }), el("th", { text: "주장/임계값" }), el("th", { text: "판정 방법" }), el("th", { text: "상태" }))));
+  const tb2 = el("tbody");
+  for (const p of log.preregistrations || []) tb2.appendChild(el("tr", {},
+    el("td", { text: p.id }), el("td", { text: p.claim }), el("td", { text: p.test }),
+    el("td", {}, el("span", { class: "badge pending", text: p.status }))));
+  t2.appendChild(tb2); card2.appendChild(el("div", { class: "scroll-x" }, t2));
+  body.appendChild(card2);
+
+  const card3 = el("div", { class: "card" });
+  card3.appendChild(el("h3", { text: "비협상 제약" }));
+  const ul = el("ul", { style: "padding-left:20px" });
+  for (const c of log.constraints || []) ul.appendChild(el("li", { text: c, style: "color:var(--ink-2);font-size:13px" }));
+  card3.appendChild(ul);
+  body.appendChild(card3);
+})();
+
+/* ------------------------------------------------------------- ⑦ SOTA md */
+(function renderSota() {
+  const md = DATA.sota_design_md;
+  if (!md) return;
+  const target = $("#sota-body");
+  target.textContent = "";
+  // minimal markdown: headers, bold, code fence, inline code, tables, lists
+  const lines = md.split("\n");
+  let html = "", inCode = false, inTable = false, inList = false;
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = s => esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, "");
+    if (line.startsWith("```")) {
+      if (!inCode) { html += "<pre>"; inCode = true; } else { html += "</pre>"; inCode = false; }
+      continue;
+    }
+    if (inCode) { html += esc(line) + "\n"; continue; }
+    const isTableRow = /^\s*\|/.test(line);
+    if (inTable && !isTableRow) { html += "</tbody></table></div>"; inTable = false; }
+    if (inList && !/^\s*[-*]\s/.test(line)) { html += "</ul>"; inList = false; }
+    if (isTableRow) {
+      const cells = line.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+      if (cells.every(c => /^:?-{2,}:?$/.test(c))) continue;
+      if (!inTable) { html += '<div class="scroll-x"><table><tbody>'; inTable = true; }
+      html += "<tr>" + cells.map(c => `<td>${inline(c)}</td>`).join("") + "</tr>";
+      continue;
+    }
+    const h = line.match(/^(#{1,3})\s+(.*)/);
+    if (h) { const n = h[1].length; html += `<h${n}>${inline(h[2])}</h${n}>`; continue; }
+    if (/^\s*[-*]\s/.test(line)) {
+      if (!inList) { html += "<ul style='padding-left:20px'>"; inList = true; }
+      html += `<li>${inline(line.replace(/^\s*[-*]\s/, ""))}</li>`; continue;
+    }
+    if (line.trim() === "") { continue; }
+    html += `<p>${inline(line)}</p>`;
+  }
+  if (inTable) html += "</tbody></table></div>";
+  if (inList) html += "</ul>";
+  if (inCode) html += "</pre>";
+  target.innerHTML = html;
+})();
+</script>
+</body>
+</html>

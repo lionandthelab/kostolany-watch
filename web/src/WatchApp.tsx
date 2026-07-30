@@ -1,11 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EggChart, type ModelMark } from "./EggChart";
 import {
   REGIME_GUIDE,
   TOP_MODELS,
-  anglesAlongCycle,
-  cycleSkipNote,
-  needsCycleTransit,
   rimFromProba,
   type ModelId,
   type RegimeCode,
@@ -15,60 +12,77 @@ import {
   fetchWatch,
   peekWatch,
   startWatchWarmup,
-  type ReplayFrame,
   type Snapshot,
   type RegimeCalibration,
   type WatchBundle,
 } from "./api";
+import { useLocale, useT } from "./i18n";
+import LocaleSwitcher from "./LocaleSwitcher";
+import { trackEvent } from "./analytics";
 
+/** Regime markets: US equities + crypto (no Korea). */
 const MARKETS = [
-  { value: "KS11", label: "KOSPI" },
-  { value: "^GSPC", label: "S&P 500" },
-  { value: "BTC-USD", label: "BTC" },
+  { value: "^GSPC", labelKey: "marketUs" as const },
+  { value: "BTC-USD", labelKey: "marketCrypto" as const },
 ] as const;
 
 const MODEL_IDS = TOP_MODELS.map((m) => m.id);
 
-function frameProba(f: ReplayFrame): Record<string, number> {
-  return f.probabilities;
+function ExplainModal({
+  title,
+  open,
+  onClose,
+  closeLabel,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onClose: () => void;
+  closeLabel: string;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="modal-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-head">
+          <h3>{title}</h3>
+          <button type="button" className="modal-close" onClick={onClose} aria-label={closeLabel}>
+            ×
+          </button>
+        </div>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  );
 }
 
-/**
- * The served posterior is measurably uncalibrated (ECE 0.42-0.50 over 2,696 OOS
- * bars), so rendering `max(p) * 100` as a percentage overstates what the model
- * knows — the deployed HMM arm routinely emitted 100%. Collapse it to a coarse
- * ordinal band and let the measured hit rate carry the actual accuracy claim.
- */
-function confidenceBand(confidence: number): string {
-  if (confidence >= 0.75) return "높음";
-  if (confidence >= 0.45) return "보통";
-  return "낮음";
-}
+type Props = { onMacro?: () => void; onAbout?: () => void; onNews?: () => void };
 
-function formatKst(iso?: string | null): string {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
-  } catch {
-    return iso;
-  }
-}
-
-type Props = { onBack?: () => void; onNews?: () => void; onFlows?: () => void };
-
-export default function WatchApp({ onBack, onNews, onFlows }: Props) {
-  const [symbol, setSymbol] = useState<string>("KS11");
+export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
+  const t = useT();
+  const { formatDate } = useLocale();
+  const [symbol, setSymbol] = useState<string>("^GSPC");
   const [snaps, setSnaps] = useState<Partial<Record<ModelId, Snapshot>>>({});
-  const [replays, setReplays] = useState<Partial<Record<ModelId, ReplayFrame[]>>>({});
-  const [cursor, setCursor] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [transit, setTransit] = useState<{
-    angles: number[];
-    step: number;
-    note: string | null;
-    targetCursor: number;
-  } | null>(null);
-  const [skipNote, setSkipNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +92,7 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
     "cached" | "stale" | "refreshing" | "cached_at" | "expires_at" | "can_refresh" | "refresh_available_at"
   > | null>(null);
   const [calibration, setCalibration] = useState<RegimeCalibration | null>(null);
+  const [modal, setModal] = useState<"regime" | "analysts" | null>(null);
   const loadGen = useRef(0);
   const memRef = useRef<Map<string, WatchBundle>>(new Map());
   const pollRef = useRef<number | null>(null);
@@ -85,17 +100,10 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
   const applyBundle = useCallback((bundle: WatchBundle) => {
     memRef.current.set(bundle.symbol, bundle);
     const nextSnaps: Partial<Record<ModelId, Snapshot>> = {};
-    const nextReplays: Partial<Record<ModelId, ReplayFrame[]>> = {};
-    let minLen = Infinity;
     for (const a of bundle.analysts) {
-      const id = a.id as ModelId;
-      nextSnaps[id] = a.snapshot;
-      nextReplays[id] = a.replay.frames;
-      minLen = Math.min(minLen, a.replay.frames.length);
+      nextSnaps[a.id as ModelId] = a.snapshot;
     }
     setSnaps(nextSnaps);
-    setReplays(nextReplays);
-    setCursor(Math.max(0, minLen - 1));
     setCacheMeta({
       cached: bundle.cached,
       stale: bundle.stale,
@@ -116,7 +124,6 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
   const stopPoll = useCallback(() => {
     if (pollRef.current != null) {
       window.clearTimeout(pollRef.current);
-      window.clearInterval(pollRef.current);
       pollRef.current = null;
     }
   }, []);
@@ -174,7 +181,6 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
         setLoading(true);
       }
       setError(null);
-      setPlaying(false);
 
       try {
         if (!refresh) {
@@ -189,7 +195,6 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
               setRefreshing(false);
               stopPoll();
             }
-            // No automatic soft fetchWatch — that stampedes Cloud Run under warmup
             return;
           }
 
@@ -217,9 +222,7 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
               void ensureWatchMarket(sym).catch(() => undefined);
             }
           }
-          if (!memRef.current.get(sym)) {
-            setError("불러오지 못했습니다.");
-          }
+          if (!memRef.current.get(sym)) setError(t.common.loadFailed);
           setLoading(false);
           return;
         }
@@ -228,10 +231,8 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
         if (gen !== loadGen.current) return;
         applyBundle(data);
         setLoading(false);
-
-        if (data.refreshing || data.stale || refresh) {
-          pollFresh(sym, data.cached_at);
-        } else {
+        if (data.refreshing || data.stale || refresh) pollFresh(sym, data.cached_at);
+        else {
           setRefreshing(false);
           stopPoll();
         }
@@ -241,7 +242,7 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
           const msg = e instanceof Error ? e.message : String(e);
           setError(
             msg.includes("Failed to fetch") || msg.includes("ECONNREFUSED")
-              ? "API 서버에 연결할 수 없습니다. 터미널에서 `kostolany serve`를 실행하세요."
+              ? t.common.loadFailed
               : msg,
           );
         }
@@ -249,11 +250,10 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
         setRefreshing(false);
       }
     },
-    [applyBundle, pollFresh, stopPoll],
+    [applyBundle, pollFresh, stopPoll, t.common.loadFailed],
   );
 
   useEffect(() => {
-    // Single kick — do not prefetch all markets (causes 429 during warmup)
     void startWatchWarmup(false).catch(() => undefined);
   }, []);
 
@@ -262,115 +262,42 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
     return () => stopPoll();
   }, [symbol, load, stopPoll]);
 
-  const focusFrames = replays[focus] ?? [];
-  const focusMeta = TOP_MODELS.find((m) => m.id === focus)!;
+  const confidenceBand = useCallback(
+    (confidence: number) => {
+      if (confidence >= 0.75) return t.watch.levelHigh;
+      if (confidence >= 0.45) return t.watch.levelMid;
+      return t.watch.levelLow;
+    },
+    [t],
+  );
+
+  const focusCopy = t.models[focus];
   const hasAny = Object.keys(snaps).length > 0;
   const stillLoading = loading && !hasAny;
   const bgBusy = refreshing || Boolean(cacheMeta?.refreshing);
 
-  useEffect(() => {
-    setTransit(null);
-    setSkipNote(null);
-  }, [focus, symbol]);
-
-  const stopReplay = useCallback(() => {
-    setPlaying(false);
-    setTransit(null);
-  }, []);
-
-  const focusFramesRef = useRef(focusFrames);
-  focusFramesRef.current = focusFrames;
-  const cursorRef = useRef(cursor);
-  cursorRef.current = cursor;
-  const transitRef = useRef(transit);
-  transitRef.current = transit;
-
-  useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => {
-      const frames = focusFramesRef.current;
-      if (frames.length === 0) {
-        setPlaying(false);
-        return;
-      }
-
-      const tr = transitRef.current;
-      if (tr) {
-        const nextStep = tr.step + 1;
-        if (nextStep >= tr.angles.length) {
-          setCursor(tr.targetCursor);
-          setTransit(null);
-        } else {
-          setTransit({ ...tr, step: nextStep });
-        }
-        return;
-      }
-
-      const c = cursorRef.current;
-      if (c >= frames.length - 1) {
-        setPlaying(false);
-        return;
-      }
-      const cur = frames[c];
-      const nxt = frames[c + 1];
-      if (!cur || !nxt) {
-        setCursor(c + 1);
-        return;
-      }
-
-      const fromRim = rimFromProba(frameProba(cur));
-      const toRim = rimFromProba(frameProba(nxt));
-      const fromR = (cur.regime as RegimeCode) || fromRim.regime;
-      const toR = (nxt.regime as RegimeCode) || toRim.regime;
-
-      if (needsCycleTransit(fromR, toR, fromRim.angle, toRim.angle)) {
-        const built = anglesAlongCycle(fromR, toR, 5);
-        const note = cycleSkipNote(fromR, toR);
-        setSkipNote(note);
-        setTransit({
-          angles: built.angles,
-          step: 0,
-          note,
-          targetCursor: c + 1,
-        });
-      } else {
-        setSkipNote(null);
-        setCursor(c + 1);
-      }
-    }, 55);
-    return () => window.clearInterval(id);
-  }, [playing]);
-
   const modelMarks: ModelMark[] = useMemo(() => {
     return TOP_MODELS.map((m) => {
       const live = snaps[m.id];
-      const frames = replays[m.id] ?? [];
-      const frame = frames[Math.min(cursor, Math.max(0, frames.length - 1))];
-      const probs = frame ? frameProba(frame) : live?.probabilities ?? {};
-      const conf = frame?.confidence ?? live?.confidence ?? 0.4;
-      const mark: ModelMark = {
+      if (!live) return null;
+      return {
         id: m.id,
-        label: m.short,
+        label: t.models[m.id].label,
         color: m.color,
-        probabilities: probs,
-        confidence: conf,
-      };
-      if (transit && m.id === focus && transit.step < transit.angles.length) {
-        mark.angleOverride = transit.angles[transit.step];
-      }
-      return mark;
-    }).filter((m) => Object.keys(m.probabilities).length > 0);
-  }, [snaps, replays, cursor, transit, focus]);
+        probabilities: live.probabilities ?? {},
+        confidence: live.confidence ?? 0.4,
+      } as ModelMark;
+    }).filter((m): m is ModelMark => Boolean(m && Object.keys(m.probabilities).length > 0));
+  }, [snaps, t.models]);
 
   const focusSnap = snaps[focus] ?? Object.values(snaps)[0];
-  const focusFrame = focusFrames[Math.min(cursor, Math.max(0, focusFrames.length - 1))];
-  const focusProbs = focusFrame?.probabilities ?? focusSnap?.probabilities ?? {};
+  const focusProbs = focusSnap?.probabilities ?? {};
   const rim = rimFromProba(focusProbs);
-  const regime = (focusFrame?.regime ?? focusSnap?.regime ?? rim.regime) as RegimeCode;
-  const guide = REGIME_GUIDE[regime] ?? REGIME_GUIDE.A2;
-  const confidence = focusFrame?.confidence ?? focusSnap?.confidence ?? 0;
-  const asof = focusFrame?.date ?? focusSnap?.asof ?? "";
-  const atLive = focusSnap && focusFrame && focusFrame.date === focusSnap.asof;
+  const regime = (focusSnap?.regime ?? rim.regime) as RegimeCode;
+  const guideColor = (REGIME_GUIDE[regime] ?? REGIME_GUIDE.A2).color;
+  const guide = t.regimes[regime] ?? t.regimes.A2;
+  const confidence = focusSnap?.confidence ?? 0;
+  const asof = focusSnap?.asof ?? "";
 
   const agreement = useMemo(() => {
     const votes = modelMarks.map((m) => rimFromProba(m.probabilities).regime);
@@ -382,198 +309,148 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
   }, [modelMarks]);
 
   const evidence = useMemo(() => {
-    if (focusSnap?.evidence?.length) return focusSnap.evidence;
-    const g = focusFrame?.gauges ?? focusSnap?.gauges;
+    const level = (v: number) =>
+      v < 0.35 ? t.watch.levelLow : v < 0.65 ? t.watch.levelMid : t.watch.levelHigh;
+    if (focusSnap?.evidence?.length) {
+      return focusSnap.evidence.map((e) => ({
+        ...e,
+        label:
+          e.key in t.watch.gauges
+            ? t.watch.gauges[e.key as keyof typeof t.watch.gauges]
+            : e.label,
+        level: level(e.value),
+      }));
+    }
+    const g = focusSnap?.gauges;
     if (!g) return [];
-    const level = (v: number) => (v < 0.35 ? "낮음" : v < 0.65 ? "보통" : "높음");
     return (
       [
-        ["volume", "거래량", "회전·거래대금 강도"],
-        ["participation", "참여", "시장 폭·참여 추세"],
-        ["money", "돈(유동성)", "금리·신용·유동성 프록시"],
-        ["sentiment", "심리", "위험선호·변동성 심리"],
+        ["volume", t.watch.gauges.volume],
+        ["participation", t.watch.gauges.participation],
+        ["money", t.watch.gauges.money],
+        ["sentiment", t.watch.gauges.sentiment],
       ] as const
-    ).map(([key, label, detail]) => ({
+    ).map(([key, label]) => ({
       key,
       label,
       value: g[key] ?? 0.5,
       level: level(g[key] ?? 0.5),
-      detail,
+      detail: "",
     }));
-  }, [focusSnap, focusFrame]);
+  }, [focusSnap, t]);
 
   return (
-    <div className="page">
-      {(onBack || onNews || onFlows) && (
-        <nav className="topnav desk-nav">
-          {onBack && (
-            <button type="button" className="nav-quiet nav-btn" onClick={onBack}>
-              ← 소개
+    <div className="page watch-slim">
+      <nav className="topnav desk-nav">
+        <div className="desk-tabs" role="tablist" aria-label={t.nav.screens}>
+          <button type="button" className="desk-tab is-active" aria-current="page">
+            {t.nav.regime}
+          </button>
+          <button type="button" className="desk-tab" onClick={onMacro}>
+            {t.nav.macro}
+          </button>
+          {onNews && (
+            <button type="button" className="desk-tab" onClick={onNews}>
+              {t.nav.news}
             </button>
           )}
-          <div className="desk-tabs" role="tablist" aria-label="화면">
-            <button type="button" className="desk-tab is-active" aria-current="page">
-              국면
+        </div>
+        <div className="desk-nav-end">
+          <LocaleSwitcher />
+          {onAbout && (
+            <button type="button" className="nav-quiet nav-btn" onClick={onAbout}>
+              {t.nav.about}
             </button>
-            <button type="button" className="desk-tab" onClick={onNews}>
-              뉴스
-            </button>
-            <button type="button" className="desk-tab" onClick={onFlows}>
-              흐름
-            </button>
-          </div>
-        </nav>
-      )}
+          )}
+        </div>
+      </nav>
 
       <section className="hero hero-watch">
         <div className="hero-copy fade-up">
           <h1 className="brand">Kostolany Watch</h1>
 
+          <div className="cache-bar">
+            <span className="status">
+              {stillLoading ? t.common.loading : formatDate(cacheMeta?.cached_at) || asof}
+            </span>
+            <button
+              type="button"
+              className="btn-refresh"
+              disabled={stillLoading || cacheMeta?.can_refresh === false}
+              onClick={() => void load(symbol, true)}
+            >
+              {bgBusy ? t.common.refreshing : t.common.refresh}
+            </button>
+          </div>
+
           {error && (
             <p className="status">
-              오류: {error}
+              {t.common.error}: {error}{" "}
               <button type="button" className="linkish" onClick={() => void load(symbol, false)}>
-                다시 시도
+                {t.common.retry}
               </button>
             </p>
           )}
 
-          {!error && (
-            <div className="cache-bar">
-              <span className="status">
-                {stillLoading
-                  ? "불러오는 중…"
-                  : formatKst(cacheMeta?.cached_at) || ""}
-              </span>
-              <button
-                type="button"
-                className="btn-refresh"
-                disabled={stillLoading || cacheMeta?.can_refresh === false}
-                title={
-                  cacheMeta?.can_refresh === false
-                    ? `다음 리프레시: ${formatKst(cacheMeta.refresh_available_at)}`
-                    : "새로고침"
-                }
-                onClick={() => void load(symbol, true)}
-              >
-                {bgBusy ? "갱신 중…" : "새로고침"}
-              </button>
-            </div>
-          )}
-
-          {!error && (hasAny || stillLoading) && (
-            <div className="regime-brief fade-up">
-              <div className="regime-brief-head">
-                {hasAny ? (
-                  <>
-                    <strong style={{ color: guide.color }}>{regime}</strong>
-                    <span className="regime-brief-name">{guide.name}</span>
-                    <span className="status" title={calibration?.note_ko}>
-                      확신도 {confidenceBand(confidence)} · {asof}
-                      {!atLive && focusFrame ? " · 리플레이" : ""}
-                    </span>
-                  </>
-                ) : (
-                  <span className="status">불러오는 중…</span>
-                )}
+          {hasAny && (
+            <div className="regime-compact fade-up">
+              <div className="regime-compact-head">
+                <strong style={{ color: guideColor }}>{regime}</strong>
+                <span className="regime-brief-name">{guide.name}</span>
+                <span className="status">
+                  {t.watch.confidence} {confidenceBand(confidence)}
+                </span>
               </div>
-
-              {hasAny && (
-                <>
-                  <p className="analyst-focus">
-                    <span className="analyst-focus-name" style={{ color: focusMeta.color }}>
-                      {focusMeta.label}
-                    </span>
-                    <span className="analyst-focus-trait">{focusMeta.trait}</span>
-                    <span className="analyst-focus-blurb">{focusMeta.blurb}</span>
-                  </p>
-
-                  <dl className="brief-grid">
-                    <div>
-                      <dt>특징</dt>
-                      <dd>{guide.trait}</dd>
-                    </div>
-                    <div>
-                      <dt>거래량</dt>
-                      <dd>{guide.volume}</dd>
-                    </div>
-                    <div>
-                      <dt>참여자</dt>
-                      <dd>{guide.crowd}</dd>
-                    </div>
-                    <div>
-                      <dt>권고 행동</dt>
-                      <dd className="brief-action">{guide.action}</dd>
-                    </div>
-                  </dl>
-                </>
-              )}
-
               {agreement && (
                 <p className="brief-agree">
-                  AI 합의:{" "}
-                  <strong style={{ color: REGIME_GUIDE[agreement.regime].color }}>{agreement.regime}</strong>
-                  {" · "}
-                  {agreement.n}/{agreement.total} 일치
+                  {t.watch.agree}{" "}
+                  <strong style={{ color: REGIME_GUIDE[agreement.regime].color }}>
+                    {agreement.regime}
+                  </strong>{" "}
+                  · {agreement.n}/{agreement.total}
                 </p>
               )}
 
               {evidence.length > 0 && (
-                <div className="evidence-panel">
-                  <h3>근거 지표</h3>
-                  <ul>
-                    {evidence.map((e) => (
-                      <li key={e.key}>
-                        <div className="evidence-top">
-                          <span className="evidence-label">{e.label}</span>
-                          <span className="evidence-level">{e.level}</span>
-                          {typeof e.value === "number" && e.key !== "position" && (
-                            <span className="evidence-val">{Math.round(e.value * 100)}</span>
-                          )}
-                        </div>
-                        {e.key !== "position" && (
-                          <div className="evidence-meter">
-                            <i style={{ width: `${Math.min(100, Math.max(0, e.value * 100))}%` }} />
-                          </div>
-                        )}
-                        <p className="evidence-detail">{e.detail}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                <ul className="gauge-strip">
+                  {evidence.map((e) => (
+                    <li key={e.key}>
+                      <span>{e.label}</span>
+                      <div className="evidence-meter">
+                        <i style={{ width: `${Math.min(100, Math.max(0, e.value * 100))}%` }} />
+                      </div>
+                      <em>{e.level}</em>
+                    </li>
+                  ))}
+                </ul>
               )}
+
+              <div className="explain-row">
+                <button type="button" className="btn-ghost btn-sm" onClick={() => {
+                  trackEvent("open_explain", { kind: "regime", symbol });
+                  setModal("regime");
+                }}>
+                  {t.watch.explainRegime}
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost btn-sm"
+                  onClick={() => {
+                    trackEvent("open_explain", { kind: "analysts", symbol });
+                    setModal("analysts");
+                  }}
+                >
+                  {t.watch.explainAi}
+                </button>
+              </div>
             </div>
           )}
 
-          <div className="model-legend">
-            {TOP_MODELS.map((m) => {
-              const mark = modelMarks.find((x) => x.id === m.id);
-              const r = mark ? rimFromProba(mark.probabilities).regime : "—";
-              const active = focus === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  className={`model-chip${active ? " is-active" : ""}`}
-                  style={{ ["--chip" as string]: m.color }}
-                  onClick={() => setFocus(m.id)}
-                  disabled={!mark}
-                  title={m.blurb}
-                >
-                  <i style={{ background: m.color }} />
-                  <span className="model-chip-text">
-                    <span className="model-chip-name">{m.label}</span>
-                    <span className="model-chip-trait">{m.trait}</span>
-                  </span>
-                  <span className="model-chip-reg">{r}</span>
-                </button>
-              );
-            })}
-          </div>
+          {focusSnap && <p className="disclaimer">{focusSnap.disclaimer}</p>}
         </div>
 
         <div className="egg-stage fade-up">
-          <div className="market-tabs" role="tablist" aria-label="시장">
+          <div className="market-tabs" role="tablist" aria-label={t.watch.markets}>
             {MARKETS.map((m) => (
               <button
                 key={m.value}
@@ -581,142 +458,108 @@ export default function WatchApp({ onBack, onNews, onFlows }: Props) {
                 role="tab"
                 aria-selected={symbol === m.value}
                 className={`market-tab${symbol === m.value ? " is-active" : ""}`}
-                onClick={() => setSymbol(m.value)}
+                onClick={() => {
+                  setSymbol(m.value);
+                  trackEvent("select_market", { symbol: m.value });
+                }}
               >
-                {m.label}
+                {t.watch[m.labelKey]}
               </button>
             ))}
           </div>
-
           <EggChart
             models={modelMarks}
             focusId={focus}
+            onFocus={(id) => {
+              setFocus(id);
+              trackEvent("focus_analyst", { analyst: id, symbol });
+            }}
             loading={!hasAny && stillLoading}
             pendingLabel={null}
           />
         </div>
       </section>
 
-      {focusFrames.length > 0 && (
-        <section className="section">
-          <h2>과거 달걀 리플레이</h2>
-          <div className="replay-controls">
-            <button
-              type="button"
-              onClick={() => {
-                if (playing) stopReplay();
-                else setPlaying(true);
-              }}
-            >
-              {playing ? "정지" : "재생"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                stopReplay();
-                const lens = TOP_MODELS.map((m) => (replays[m.id] ?? []).length).filter((n) => n > 0);
-                setCursor(Math.max(0, Math.min(...lens) - 1));
-                setSkipNote(null);
-              }}
-            >
-              오늘
-            </button>
-            <input
-              type="range"
-              min={0}
-              max={Math.max(0, focusFrames.length - 1)}
-              value={Math.min(cursor, Math.max(0, focusFrames.length - 1))}
-              onChange={(e) => {
-                stopReplay();
-                setSkipNote(null);
-                setCursor(Number(e.target.value));
-              }}
-              aria-label="리플레이 시점"
-            />
-            <span className="status">
-              {focusFrames[Math.min(cursor, focusFrames.length - 1)]?.date}
-              {transit ? " · 동선 통과 중" : ""}
-            </span>
-          </div>
-          {skipNote && <p className="replay-skip-note">{skipNote}</p>}
-        </section>
-      )}
-
-      {focusSnap && !error && (
-        <>
-          <section className="section">
-            <h2>국면 한눈에</h2>
-            <div className="guide-table">
-              {(Object.keys(REGIME_GUIDE) as RegimeCode[]).map((code) => {
-                const g = REGIME_GUIDE[code];
-                const p = focusProbs[code] ?? 0;
-                const on = code === regime;
-                return (
-                  <div key={code} className={`guide-row${on ? " is-on" : ""}`}>
-                    <div className="guide-code" style={{ color: g.color }}>
-                      {code}
-                    </div>
-                    <div className="guide-main">
-                      <div className="guide-title">
-                        {g.name}
-                        <span className="guide-pct">{(p * 100).toFixed(0)}%</span>
-                      </div>
-                      <p>{g.trait}</p>
-                      <p className="guide-meta">
-                        {g.volume} · {g.crowd}
-                      </p>
-                    </div>
-                    <div className="guide-action">{g.action}</div>
+      <ExplainModal
+        title={t.watch.regimeModal}
+        open={modal === "regime"}
+        onClose={() => setModal(null)}
+        closeLabel={t.common.close}
+      >
+        <div className="modal-lead">
+          <strong style={{ color: guideColor }}>
+            {regime} {guide.name}
+          </strong>
+          <p>{guide.trait}</p>
+          <p className="modal-meta">
+            {t.watch.volume} · {guide.volume}
+            <br />
+            {t.watch.crowd} · {guide.crowd}
+          </p>
+          <p className="brief-action">
+            {t.watch.actionEdu}: {guide.action}
+          </p>
+        </div>
+        <div className="guide-table modal-guide">
+          {(Object.keys(REGIME_GUIDE) as RegimeCode[]).map((code) => {
+            const g = t.regimes[code];
+            const color = REGIME_GUIDE[code].color;
+            const p = focusProbs[code] ?? 0;
+            return (
+              <div key={code} className={`guide-row${code === regime ? " is-on" : ""}`}>
+                <div className="guide-code" style={{ color }}>
+                  {code}
+                </div>
+                <div className="guide-main">
+                  <div className="guide-title">
+                    {g.name}
+                    <span className="guide-pct">{(p * 100).toFixed(0)}%</span>
                   </div>
-                );
-              })}
-            </div>
-          </section>
+                  <p>{g.trait}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {calibration && (
+          <p className="disclaimer">
+            {t.watch.measuredHit}{" "}
+            {(
+              (calibration.measured[focus]?.exact6 ??
+                calibration.constant_prior_baseline.exact6) * 100
+            ).toFixed(0)}
+            %. {calibration.note_ko}
+          </p>
+        )}
+      </ExplainModal>
 
-          <section className="section">
-            <h2>판단 근거</h2>
-            <div className="evidence-panel evidence-panel-wide">
-              <ul>
-                {evidence.map((e) => (
-                  <li key={`wide-${e.key}`}>
-                    <div className="evidence-top">
-                      <span className="evidence-label">{e.label}</span>
-                      <span className="evidence-level">{e.level}</span>
-                      {e.key !== "position" && (
-                        <span className="evidence-val">{Math.round(e.value * 100)}</span>
-                      )}
-                    </div>
-                    {e.key !== "position" && (
-                      <div className="evidence-meter">
-                        <i style={{ width: `${Math.min(100, Math.max(0, e.value * 100))}%` }} />
-                      </div>
-                    )}
-                    <p className="evidence-detail">{e.detail}</p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-
-          {calibration && (
-            <p className="disclaimer">
-              측정 성적({calibration.window}, {calibration.n_oos_bars.toLocaleString()}
-              거래일 워크포워드): 6국면 정확 적중{" "}
-              {(
-                (calibration.measured[focus]?.exact6 ??
-                  calibration.constant_prior_baseline.exact6) * 100
-              ).toFixed(0)}
-              % (무작위 {(calibration.exact6_chance * 100).toFixed(0)}%) · 인접 국면 포함{" "}
-              {(
-                (calibration.measured[focus]?.adjacent ??
-                  calibration.constant_prior_baseline.adjacent) * 100
-              ).toFixed(0)}
-              % (구조적 하한 {(calibration.adjacent_floor * 100).toFixed(0)}%). {calibration.note_ko}
-            </p>
-          )}
-          <p className="disclaimer">{focusSnap.disclaimer}</p>
-        </>
-      )}
+      <ExplainModal
+        title={t.watch.analystsModal}
+        open={modal === "analysts"}
+        onClose={() => setModal(null)}
+        closeLabel={t.common.close}
+      >
+        <ul className="analyst-list modal-analysts">
+          {TOP_MODELS.map((m) => {
+            const copy = t.models[m.id];
+            return (
+              <li key={m.id}>
+                <span className="analyst-dot" style={{ background: m.color }} />
+                <div>
+                  <strong style={{ color: m.color }}>{copy.label}</strong>
+                  <em>{copy.trait}</em>
+                  <p>{copy.blurb}</p>
+                  {focus === m.id && (
+                    <p className="status">
+                      {t.watch.currentFocus} · {focusCopy.label}
+                    </p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </ExplainModal>
     </div>
   );
 }

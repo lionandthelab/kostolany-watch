@@ -27,18 +27,15 @@ from kostolany.settings import get_settings
 
 log = logging.getLogger(__name__)
 
-# Panel that cleared equity promotion screens (KS11 68% / S&P 77%).
-SERVING_PANEL: tuple[str, ...] = (
-    "KS11",
-    "^GSPC",
-    "BTC-USD",
-    "SPY",
-    "GLD",
-    "TLT",
-    "XLE",
-)
+# SERVING_PANEL == DEFAULT_PANEL by construction: the promoted model must be
+# fitted on the exact panel the evaluation used (the old 7-symbol subset with
+# KS11/^GSPC duplicates was never what was scored). The old promotion comment
+# ("KS11 68% / S&P 77%") was unsupported by any stored artifact and is gone.
+SERVING_PANEL: tuple[str, ...] = tuple(DEFAULT_PANEL)
 POOLED_TTL_HOURS = 24.0
-_MODEL_NAME = "pooled_direct_v1.joblib"
+# v2: panel dedup (KS11/^GSPC out) + panel/width validation on load. Old blobs
+# were fitted on a different panel and must not be served.
+_MODEL_NAME = "pooled_direct_v2.joblib"
 
 _lock = threading.Lock()
 _model: PooledDirectModel | None = None
@@ -67,8 +64,19 @@ def _load_disk() -> PooledDirectModel | None:
     try:
         blob = joblib.load(path)
         model = blob.get("model")
-        if isinstance(model, PooledDirectModel) and model.median_ is not None:
-            return model
+        if not (isinstance(model, PooledDirectModel) and model.median_ is not None):
+            return None
+        # Validate the blob against the CURRENT serving contract, not just its
+        # mtime: a panel or feature-set change must invalidate the model, not
+        # silently swap the engine for 20 sectors for up to 24h.
+        if list(blob.get("panel") or []) != list(SERVING_PANEL):
+            log.warning("pooled blob panel mismatch — refitting")
+            return None
+        n_cols = blob.get("n_columns")
+        if n_cols is not None and int(n_cols) != len(model.columns_):
+            log.warning("pooled blob design-width mismatch — refitting")
+            return None
+        return model
     except Exception as exc:  # noqa: BLE001
         log.warning("pooled disk load failed: %s", exc)
     return None
@@ -77,7 +85,15 @@ def _load_disk() -> PooledDirectModel | None:
 def _save_disk(model: PooledDirectModel) -> None:
     path = _model_path()
     try:
-        joblib.dump({"model": model, "panel": list(SERVING_PANEL), "saved_at": time.time()}, path)
+        joblib.dump(
+            {
+                "model": model,
+                "panel": list(SERVING_PANEL),
+                "n_columns": len(model.columns_),
+                "saved_at": time.time(),
+            },
+            path,
+        )
         push_async(path)
     except Exception as exc:  # noqa: BLE001
         log.warning("pooled disk save failed: %s", exc)

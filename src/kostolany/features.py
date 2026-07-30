@@ -155,7 +155,12 @@ def build_features(ohlcv: pd.DataFrame, extras: pd.DataFrame | None = None) -> p
     else:
         money_proxy = local_money
 
-    local_credit = (-_zscore(vol_of_vol.fillna(0), 60)).clip(-8, 8)
+    # Distinct local fallback: realized-vol term structure (short/long RV ratio),
+    # NOT -z(vol_of_vol) — that was an exact negation of the vol_of_vol feature
+    # (corr -1.0), a duplicated column that double-weighted one signal and
+    # degenerated the HMM's diagonal Gaussian.
+    rv_ratio = (rv_10 / rv_60.replace(0, np.nan)).clip(0, 10)
+    local_credit = (-_zscore(rv_ratio.fillna(1.0), 60)).clip(-8, 8)
     if extras is not None and "credit_proxy" in extras.columns:
         credit_proxy = extras["credit_proxy"].reindex(df.index).ffill()
         if float(credit_proxy.notna().mean()) < 0.5:
@@ -195,6 +200,20 @@ def build_features(ohlcv: pd.DataFrame, extras: pd.DataFrame | None = None) -> p
         },
         index=df.index,
     )
+
+    # Signed KRX investor flows — the sign is the Kostolany signal (who is
+    # buying). Optional research columns: they are NOT in FEATURE_SPECS, so
+    # model_matrix() and every serving model ignore them until the
+    # pre-registered signed-flow experiment clears its gate.
+    if extras is not None:
+        for src, name in (
+            ("krx_foreign_net", "foreign_net_z"),
+            ("krx_inst_net", "inst_net_z"),
+            ("krx_retail_net", "retail_net_z"),
+        ):
+            if src in extras.columns:
+                s = extras[src].reindex(df.index).astype(float)
+                out[name] = _zscore(s.fillna(0.0), 120).clip(-8, 8)
     return out
 
 

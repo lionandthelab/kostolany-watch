@@ -1,62 +1,116 @@
 import { useCallback, useEffect, useState } from "react";
-import FlowsDesk from "./FlowsDesk";
+import MacroDesk from "./MacroDesk";
 import Landing from "./Landing";
 import NewsDesk from "./NewsDesk";
 import WatchApp from "./WatchApp";
+import { trackEvent, trackPageView } from "./analytics";
+import { useLocale, useT } from "./i18n";
+import { applySeo, type SeoMode } from "./seo";
 
-type Mode = "landing" | "watch" | "news" | "flows";
+type Mode = SeoMode;
 
-function modeFromHash(): Mode {
+const HASH_MAP: Record<string, string> = {
+  "#watch": "/watch",
+  "#macro": "/macro",
+  "#flows": "/macro",
+  "#news": "/news",
+  "#about": "/about",
+  "#landing": "/about",
+};
+
+function modeFromPath(): Mode {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/watch") return "watch";
+  if (path === "/macro") return "macro";
+  if (path === "/news") return "news";
+  if (path === "/about") return "about";
+  return "home";
+}
+
+function pathFor(mode: Mode): string {
+  if (mode === "watch") return "/watch";
+  if (mode === "macro") return "/macro";
+  if (mode === "news") return "/news";
+  if (mode === "about") return "/about";
+  return "/";
+}
+
+/** Old hash bookmarks → path routes (SEO-friendly). */
+function migrateHashIfNeeded() {
   const h = window.location.hash;
-  if (h === "#news") return "news";
-  if (h === "#flows") return "flows";
-  if (h === "#watch") return "watch";
-  return "landing";
+  if (!h) return;
+  const next = HASH_MAP[h];
+  if (next) {
+    window.history.replaceState(null, "", next);
+  }
 }
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>(() =>
-    typeof window !== "undefined" ? modeFromHash() : "landing",
-  );
+  const t = useT();
+  const { locale } = useLocale();
+  const [mode, setMode] = useState<Mode>(() => {
+    if (typeof window === "undefined") return "home";
+    migrateHashIfNeeded();
+    return modeFromPath();
+  });
 
-  const enterWatch = useCallback(() => {
-    setMode("watch");
-    window.history.replaceState(null, "", "#watch");
+  const go = useCallback((next: Mode, source = "nav") => {
+    setMode(next);
+    const path = pathFor(next);
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
+    }
     window.scrollTo(0, 0);
+    trackEvent("navigate", { screen: next, source });
   }, []);
 
-  const enterNews = useCallback(() => {
-    setMode("news");
-    window.history.replaceState(null, "", "#news");
-    window.scrollTo(0, 0);
-  }, []);
+  const enterWatch = useCallback(() => go("watch", "cta_or_nav"), [go]);
+  const enterMacro = useCallback(() => go("macro", "nav"), [go]);
+  const enterNews = useCallback(() => go("news", "nav"), [go]);
+  const enterAbout = useCallback(() => go("about", "nav"), [go]);
+  const enterHome = useCallback(() => go("home", "nav"), [go]);
 
-  const enterFlows = useCallback(() => {
-    setMode("flows");
-    window.history.replaceState(null, "", "#flows");
-    window.scrollTo(0, 0);
-  }, []);
-
-  const back = useCallback(() => {
-    setMode("landing");
-    window.history.replaceState(null, "", window.location.pathname);
-    window.scrollTo(0, 0);
+  useEffect(() => {
+    migrateHashIfNeeded();
+    const onPop = () => setMode(modeFromPath());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   useEffect(() => {
-    const onHash = () => setMode(modeFromHash());
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+    const key = mode === "home" ? "home" : mode;
+    applySeo(t.seo[key], pathFor(mode), locale);
+    trackPageView(pathFor(mode), document.title);
+  }, [mode, t.seo, locale]);
 
-  if (mode === "watch") {
-    return <WatchApp onBack={back} onNews={enterNews} onFlows={enterFlows} />;
+  if (mode === "macro") {
+    return <MacroDesk onWatch={enterWatch} onAbout={enterAbout} onNews={enterNews} />;
   }
   if (mode === "news") {
-    return <NewsDesk onBack={back} onWatch={enterWatch} onFlows={enterFlows} />;
+    return (
+      <NewsDesk onWatch={enterWatch} onMacro={enterMacro} onAbout={enterAbout} />
+    );
   }
-  if (mode === "flows") {
-    return <FlowsDesk onBack={back} onWatch={enterWatch} onNews={enterNews} />;
+  if (mode === "about" || mode === "home") {
+    return (
+      <Landing
+        onEnter={() => {
+          trackEvent("cta_watch", { from: mode });
+          enterWatch();
+        }}
+        onMacro={() => {
+          trackEvent("cta_macro", { from: mode });
+          enterMacro();
+        }}
+        onHome={mode === "about" ? enterHome : undefined}
+      />
+    );
   }
-  return <Landing onEnter={enterWatch} onNews={enterNews} onFlows={enterFlows} />;
+  return (
+    <WatchApp
+      onMacro={enterMacro}
+      onAbout={enterAbout}
+      onNews={enterNews}
+    />
+  );
 }

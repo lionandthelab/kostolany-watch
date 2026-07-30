@@ -70,6 +70,34 @@ class MarketScore:
     elapsed_seconds: float
 
 
+@dataclass
+class ConsensusScore:
+    """Score of the number the Flows desk actually ships: the 3-arm consensus.
+
+    ``amplitude_ratio`` is std(consensus terminal return) / std(realized 63d
+    return) — the pre-registered diagnosis (P-CONS-1) predicts ~0.4, i.e. the
+    constant arms clamp the shipped number to well under half the market's
+    actual variability.
+    """
+
+    symbol: str
+    n_origins: int
+    direction_hit: float
+    direction_ci_low: float
+    direction_ci_high: float
+    always_up_hit: float
+    skill_vs_trivial: float
+    baseline_hit: float
+    predicted_up_rate: float
+    amplitude_ratio: float
+    mae: float
+    baseline_mae: float
+    mae_ratio: float
+    correlation: float
+    learned_arm_engine: str
+    elapsed_seconds: float
+
+
 def bootstrap_block_for_stride(origin_stride: int) -> int:
     """Block length that spans the overlap induced by ``origin_stride``.
 
@@ -233,6 +261,116 @@ def evaluate_flow_market(
         mean_magnitude_scale=float(np.mean(magnitude_scales)),
         baseline_mae=baseline_mae,
         mae_ratio=mae / max(1e-12, baseline_mae),
+        elapsed_seconds=time.perf_counter() - started,
+    )
+
+
+def evaluate_consensus_market(
+    symbol: str,
+    *,
+    start: str = "2010-01-01",
+    origin_stride: int = 21,
+    refit_stride: int = 126,
+    min_train: int = 756,
+) -> ConsensusScore:
+    """Walk-forward score of the SHIPPED Flows number: the 3-arm consensus.
+
+    At each origin the serving bundle is reproduced causally: one TSFMEnsemble
+    fitted on ``X[:origin]`` yields the hmm/gbm/tsfm probability vectors and
+    the LocalTSFM trajectory; the three arms are then assembled through
+    ``flows.assemble_paths`` — the SAME function the serving payload routes
+    through — and the consensus terminal value is scored against the realized
+    63d forward return.
+
+    Recorded limitation: for equity symbols production swaps the learned arm
+    for the pooled head, which has no walk-forward reproduction yet (Phase 3).
+    This lane therefore scores the LocalTSFM-armed consensus, which production
+    serves for non-equity symbols and as the equity fallback.
+    """
+    from kostolany.flows import arm_from_trajectory, assemble_paths
+    from kostolany.regimes import Regime
+
+    started = time.perf_counter()
+    market = load_market(symbol, start=start, enrich_fred=True)
+    X, y_weak, _y_gold, prices = prepare_xy(market)
+    valid = (
+        X.dropna()
+        .index.intersection(y_weak.dropna().index)
+        .intersection(prices.dropna().index)
+    )
+    X = X.loc[valid]
+    y_weak = y_weak.loc[valid].astype(int)
+    prices = prices.loc[valid].astype(float)
+    if len(X) < min_train + HORIZON + 5:
+        raise ValueError(f"{symbol}: only {len(X)} clean rows")
+
+    def _proba_dict(pred: Any) -> dict[str, float]:
+        row = pred.proba.iloc[-1]
+        return {Regime(i).name: float(row[f"p{i}"]) for i in range(6)}
+
+    consensus_ret: list[float] = []
+    actual: list[float] = []
+    baseline: list[float] = []
+    engines_seen: set[str] = set()
+    origins = range(min_train, len(X) - HORIZON, origin_stride)
+    bundle: TSFMEnsemble | None = None
+    last_fit = -100_000
+
+    for origin in origins:
+        if bundle is None or origin - last_fit >= refit_stride:
+            bundle = TSFMEnsemble()
+            bundle.fit(X.iloc[:origin], y_weak.iloc[:origin])
+            last_fit = origin
+
+        tail = X.iloc[max(0, origin - 90) : origin]
+        probas = {
+            "hmm": _proba_dict(bundle.hmm.predict(tail)),
+            "gbm": _proba_dict(bundle.gbm.predict(tail)),
+            "tsfm": _proba_dict(bundle.predict(tail)),  # sets bundle.last_traj_
+        }
+        # Same horizon grid the serving path uses (dates only label the points;
+        # the arithmetic depends on len(dates) == HORIZON).
+        fwd_dates = [f"h{i}" for i in range(1, HORIZON + 1)]
+        learned = arm_from_trajectory(
+            bundle.last_traj_, 100.0, fwd_dates, probas["tsfm"], direct_weight=0.90
+        )
+        assembled = assemble_paths(probas, fwd_dates, learned)
+        engines_seen.add(str(assembled["forecast_engine"]))
+        consensus_ret.append(assembled["consensus_level"] / 100.0 - 1.0)
+
+        px0 = float(prices.iloc[origin - 1])
+        px1 = float(prices.iloc[origin - 1 + HORIZON])
+        actual.append(px1 / px0 - 1.0)
+        log_hist = np.log(prices.iloc[max(0, origin - 253) : origin]).diff().dropna()
+        baseline.append(float(np.expm1(log_hist.mean() * HORIZON)))
+
+    p = np.asarray(consensus_ret, dtype=float)
+    r = np.asarray(actual, dtype=float)
+    base = np.asarray(baseline, dtype=float)
+    hits = (np.sign(p) == np.sign(r)).astype(float)
+    base_hits = (np.sign(base) == np.sign(r)).astype(float)
+    always_up = float(np.mean(r > 0))
+    trivial = max(always_up, 1.0 - always_up)
+    ci_low, ci_high = _block_bootstrap_hit_ci(hits, origin_stride=origin_stride)
+    mae = float(np.mean(np.abs(p - r)))
+    baseline_mae = float(np.mean(np.abs(base - r)))
+
+    return ConsensusScore(
+        symbol=symbol,
+        n_origins=len(p),
+        direction_hit=float(np.mean(hits)),
+        direction_ci_low=ci_low,
+        direction_ci_high=ci_high,
+        always_up_hit=always_up,
+        skill_vs_trivial=float(np.mean(hits) - trivial),
+        baseline_hit=float(np.mean(base_hits)),
+        predicted_up_rate=float(np.mean(p > 0)),
+        amplitude_ratio=float(np.std(p) / max(1e-12, np.std(r))),
+        mae=mae,
+        baseline_mae=baseline_mae,
+        mae_ratio=mae / max(1e-12, baseline_mae),
+        correlation=_safe_corr(p, r),
+        learned_arm_engine=",".join(sorted(engines_seen)),
         elapsed_seconds=time.perf_counter() - started,
     )
 

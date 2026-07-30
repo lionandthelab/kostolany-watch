@@ -34,8 +34,16 @@ from kostolany.data import MarketData  # noqa: E402
 from kostolany.engine import prepare_xy  # noqa: E402
 from kostolany.harness.cv import PurgedWalkForward  # noqa: E402
 from kostolany.harness.metrics import evaluate_regimes  # noqa: E402
+from kostolany.anchor import apply_lambda, fit_lambda  # noqa: E402
 from kostolany.labels import gold_labels  # noqa: E402
+from kostolany.labels_pit import clock_terciles, clock_third, pit_state  # noqa: E402
 from kostolany.models import EnsembleEngine, KostolanyGBM  # noqa: E402
+from kostolany.tsfm import TSFMEnsemble  # noqa: E402
+
+# Pre-registered momentum-floor family (side_head_v1.json). Selection-free:
+# the MEDIAN of the family is the primary comparator, the MAX the guardrail.
+MOMO_MA_WINDOWS = (20, 40, 60, 100, 200)
+MOMO_RET_HORIZONS = (10, 20, 60)
 from kostolany.phase import (  # noqa: E402
     DEFAULT_PHASE_FEATURES,
     PhaseHead,
@@ -60,7 +68,7 @@ N_CLASSES = 6
 # --------------------------------------------------------------------- data
 
 
-def load_market_cached(symbol: str, start: str) -> MarketData:
+def load_market_cached(symbol: str, start: str, *, enrich_fred: bool = False) -> MarketData:
     """Read the on-disk connector cache so the run needs no network.
 
     Mirrors ``connectors.krx.fetch_krx``'s cache layout
@@ -75,7 +83,7 @@ def load_market_cached(symbol: str, start: str) -> MarketData:
             return MarketData(symbol="KS11", ohlcv=cached[OHLCV_COLS], extras=extras)
     from kostolany.connectors import load_market
 
-    return load_market(symbol, start=start, enrich_fred=False)
+    return load_market(symbol, start=start, enrich_fred=enrich_fred)
 
 
 # ------------------------------------------------------------------ metrics
@@ -194,7 +202,7 @@ def build_folds(
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     t0 = time.time()
-    market = load_market_cached(args.symbol, args.start)
+    market = load_market_cached(args.symbol, args.start, enrich_fred=args.enrich_fred)
     X, y_weak, _y_gold_labels, prices = prepare_xy(market)
 
     valid = (
@@ -230,10 +238,43 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     candidates = ["gbm_shipped", "phase_head", "majority_weak", "weak_label", "prior_shrunk"]
     if not args.skip_ensemble:
         candidates.insert(1, "ensemble_shipped")
+    # The three arms the watch desk actually serves. `_build_watch_body` routes
+    # the default `hmm,gbm,tsfm` request through `fit_analyst_bundle`, so:
+    #   hmm_shipped  = KostolanyHMM() defaults        (리듬이)
+    #   gbm_serving  = KostolanyGBM(cycle_smooth=0.0)  (눈치왕 — TSFMEnsemble arm,
+    #                  NOT the standalone gbm_shipped config above)
+    #   tsfm_shipped = TSFMEnsemble.predict            (파도꾼)
+    # One TSFMEnsemble fit per fold yields all three, mirroring the bundle path.
+    # *_anchored = the same arms after the one-scalar lambda-uniform anchor the
+    # serving path now applies (G14 measurement; argmax is anchor-invariant).
+    if not args.skip_serving_arms:
+        candidates[0:0] = [
+            "hmm_shipped",
+            "gbm_serving",
+            "tsfm_shipped",
+            "hmm_anchored",
+            "gbm_anchored",
+            "tsfm_anchored",
+        ]
+    # Pre-registered comparator layer (side_head_v1.json): uniform floor,
+    # clock-rolled hedge, and the 8-rule momentum family with the causal clock.
+    momo_names = [f"momo_ma{w}" for w in MOMO_MA_WINDOWS] + [
+        f"momo_ret{h}" for h in MOMO_RET_HORIZONS
+    ]
+    candidates += ["uniform", "clockroll_hedged", *momo_names]
+
+    # Causal, prefix-stable inputs shared by the comparator arms.
+    clock = pit_state(prices)
+    momo_up: dict[str, pd.Series] = {}
+    for w in MOMO_MA_WINDOWS:
+        momo_up[f"momo_ma{w}"] = prices > prices.rolling(w, min_periods=w // 2).mean()
+    for h in MOMO_RET_HORIZONS:
+        momo_up[f"momo_ret{h}"] = prices.pct_change(h) > 0
 
     preds: dict[str, list[pd.Series]] = {c: [] for c in candidates}
     probas: dict[str, list[pd.DataFrame]] = {c: [] for c in candidates}
     kappas: list[float] = []
+    lambdas: list[dict[str, float]] = []
     fold_meta: list[dict[str, Any]] = []
     warnings: list[str] = []
 
@@ -260,6 +301,56 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "embargo": int(fold.embargo_count),
             }
         )
+
+        # (a0) the three arms the watch desk serves, extracted from ONE
+        # TSFMEnsemble fit per fold exactly as fit_analyst_bundle does — plus
+        # their lambda-anchored versions, with lambda fitted CAUSALLY on the
+        # trailing 252 train bars via a prefix refit (same recipe as serving).
+        if not args.skip_serving_arms:
+            serving_names = (
+                "hmm_shipped",
+                "gbm_serving",
+                "tsfm_shipped",
+                "hmm_anchored",
+                "gbm_anchored",
+                "tsfm_anchored",
+            )
+            try:
+                bundle = TSFMEnsemble().fit(Xtr, ytr)
+                arm_preds = {
+                    "hmm": bundle.hmm.predict(Xte),
+                    "gbm": bundle.gbm.predict(Xte),
+                    "tsfm": bundle.predict(Xte),
+                }
+                lam = {"hmm": 0.0, "gbm": 0.0, "tsfm": 0.0}
+                hold = 252
+                if len(Xtr) - hold >= 504:
+                    pre = TSFMEnsemble().fit(Xtr.iloc[:-hold], ytr.iloc[:-hold])
+                    Xh, yh = Xtr.iloc[-hold:], ytr.iloc[-hold:]
+                    lam = {
+                        "hmm": fit_lambda(pre.hmm.predict(Xh).proba[cols], yh),
+                        "gbm": fit_lambda(pre.gbm.predict(Xh).proba[cols], yh),
+                        "tsfm": fit_lambda(pre.predict(Xh).proba[cols], yh),
+                    }
+                lambdas.append(lam)
+                raw_map = {
+                    "hmm_shipped": "hmm",
+                    "gbm_serving": "gbm",
+                    "tsfm_shipped": "tsfm",
+                }
+                for cname, aid in raw_map.items():
+                    rp = arm_preds[aid]
+                    preds[cname].append(rp.regimes.reindex(idx))
+                    probas[cname].append(rp.proba.reindex(idx)[cols])
+                    # Anchored: argmax invariant, only the probability changes.
+                    anch = apply_lambda(rp.proba.reindex(idx)[cols], lam[aid])
+                    preds[aid + "_anchored"].append(rp.regimes.reindex(idx))
+                    probas[aid + "_anchored"].append(anch)
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"serving arms failed on fold {fold.fold_id}: {exc}")
+                for cname in serving_names:
+                    preds[cname].append(pd.Series(np.nan, index=idx))
+                    probas[cname].append(pd.DataFrame(np.nan, index=idx, columns=cols))
 
         # (a) shipped GBM
         r, p = KostolanyGBM(calibrate=True, cycle_smooth=0.22).fit_predict(Xtr, ytr, Xte)
@@ -303,6 +394,47 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         probas["prior_shrunk"].append(
             pd.DataFrame(np.tile(prior, (len(idx), 1)), index=idx, columns=cols)
         )
+
+        # (e) uniform floor: Brier exactly 5/36 whatever the label distribution.
+        # argmax of a uniform vector is undefined, so pred = train-prior argmax.
+        preds["uniform"].append(pd.Series(int(prior.argmax()), index=idx))
+        probas["uniform"].append(
+            pd.DataFrame(1.0 / N_CLASSES, index=idx, columns=cols)
+        )
+
+        # (f) causal clock: side from confirmed turns, third from TRAIN-fitted
+        # tercile cuts of elapsed bars. Zero learned parameters.
+        clk_tr = clock.reindex(Xtr.index)
+        cuts = clock_terciles(clk_tr.loc[clk_tr["side"] != 0, "k"])
+        clk_te = clock.reindex(idx)
+        thirds = clock_third(clk_te["k"], cuts)
+        clock_class = np.where(
+            clk_te["side"].to_numpy() == 0,
+            int(prior.argmax()),
+            np.where(clk_te["side"].to_numpy() > 0, thirds, 3 + thirds),
+        ).astype(int)
+
+        # Train-slice survival rate of the clock's own class (one statistic).
+        tr_thirds = clock_third(clk_tr["k"], cuts)
+        tr_class = np.where(
+            clk_tr["side"].to_numpy() == 0,
+            int(prior.argmax()),
+            np.where(clk_tr["side"].to_numpy() > 0, tr_thirds, 3 + tr_thirds),
+        ).astype(int)
+        surv = float(np.mean(tr_class[1:] == tr_class[:-1])) if len(tr_class) > 1 else 0.8
+        hedged = np.full((len(idx), N_CLASSES), (1.0 - surv) / (N_CLASSES - 1))
+        hedged[np.arange(len(idx)), clock_class] = surv
+        preds["clockroll_hedged"].append(pd.Series(clock_class, index=idx))
+        probas["clockroll_hedged"].append(pd.DataFrame(hedged, index=idx, columns=cols))
+
+        # (g) momentum-floor family: unfitted side rule x the same clock third.
+        for mname in momo_names:
+            up = momo_up[mname].reindex(idx).fillna(True).to_numpy()
+            mclass = np.where(up, thirds, 3 + thirds).astype(int)
+            preds[mname].append(pd.Series(mclass, index=idx))
+            probas[mname].append(
+                pd.DataFrame(_onehot_proba(mclass), index=idx, columns=cols)
+            )
 
     oos_index = pd.Index(np.concatenate([p.index.to_numpy() for p in preds[candidates[0]]]))
     seg_oos = segments.reindex(oos_index)
@@ -454,6 +586,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "seed": int(args.seed),
             "gold_sector_vs_gold_labels_agreement": gold_agreement,
             "ensemble_arm": "EnsembleEngine (HMM+GBM) — cheaper than TSFMEnsemble",
+            "serving_arms_included": not args.skip_serving_arms,
+            "serving_arm_configs": (
+                None
+                if args.skip_serving_arms
+                else {
+                    "hmm_shipped": "KostolanyHMM() defaults via TSFMEnsemble.hmm (리듬이)",
+                    "gbm_serving": "KostolanyGBM(cycle_smooth=0.0) via TSFMEnsemble.gbm (눈치왕)",
+                    "tsfm_shipped": "TSFMEnsemble.predict 0.25/0.55/0.20 (파도꾼)",
+                }
+            ),
+            "enrich_fred": bool(args.enrich_fred),
             "metrics_baselines_available": metrics_baselines is not None,
             # Cross-check: the harness's own battery on the same scored rows. If
             # these disagree with the locally-computed baselines the run is not
@@ -462,6 +605,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 metrics_baselines(y_true) if metrics_baselines is not None else None
             ),
             "phase_head_kappa_per_fold": kappas,
+            "anchor_lambda_per_fold": lambdas,
+            "momo_family": momo_names,
             "disclaimer_ko": DISCLAIMER_KO,
         },
         "candidates": results,
@@ -469,6 +614,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "tripwire": trip,
         "warnings": warnings,
     }
+
+    # Pre-registered family summary: the MEDIAN is the primary comparator, the
+    # MAX the adversarial guardrail (G11). Never pick a single best rule.
+    fam_rows = [results[m] for m in momo_names if m in results]
+    if fam_rows:
+        def _fam(metric_get) -> dict[str, float]:
+            vals = sorted(metric_get(r) for r in fam_rows)
+            return {
+                "median": float(np.median(vals)),
+                "max": float(max(vals)),
+                "min": float(min(vals)),
+            }
+
+        payload["momo_floor_summary"] = {
+            "side_accuracy": _fam(lambda r: r["factorisation"]["side_accuracy"]),
+            "exact6": _fam(lambda r: r["exact6"]),
+            "third_given_side": _fam(
+                lambda r: r["factorisation"]["third_accuracy_given_side"]
+            ),
+        }
 
     out_dir = ROOT / "artifacts" / "experiments"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -566,6 +731,16 @@ def main() -> int:
     p.add_argument("--n-boot", type=int, default=1000)
     p.add_argument("--seed", type=int, default=20260729)
     p.add_argument("--skip-ensemble", action="store_true")
+    p.add_argument(
+        "--skip-serving-arms",
+        action="store_true",
+        help="Skip the hmm_shipped/gbm_serving/tsfm_shipped candidates (one TSFMEnsemble fit per fold)",
+    )
+    p.add_argument(
+        "--enrich-fred",
+        action="store_true",
+        help="Load FRED/Yahoo extras like the serving path does (network required)",
+    )
     args = p.parse_args()
 
     payload = run(args)

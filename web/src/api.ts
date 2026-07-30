@@ -359,6 +359,48 @@ export async function fetchNews(refresh = false): Promise<NewsDesk> {
 
 export type FlowPoint = { date: string; value: number };
 
+export type MacroCard = {
+  id: string;
+  title: string;
+  value: number | null;
+  unit: string;
+  delta?: number | null;
+  delta_label?: string;
+  series: FlowPoint[];
+  blurb?: string;
+  extra?: Record<string, unknown>;
+};
+
+export type MacroBoard = {
+  asof?: string;
+  source?: string;
+  cards: MacroCard[];
+  treasury_10y?: number | null;
+  fedwatch?: {
+    label?: string;
+    cut?: number | null;
+    hold?: number | null;
+    hike?: number | null;
+    gap_pp?: number;
+    note?: string;
+    source?: string;
+  };
+  fear_greed?: {
+    score?: number;
+    label?: string;
+    series?: FlowPoint[];
+    disclaimer?: string;
+  };
+  disclaimer: string;
+  cached?: boolean;
+  error?: string;
+};
+
+export async function fetchMacroBoard(refresh = false): Promise<MacroBoard> {
+  const q = refresh ? "?refresh=true" : "";
+  return fetchJson(`${API}/macro${q}`, refresh ? 1 : 3);
+}
+
 /** Terminal q10/q90 as 100-based index levels, consistent with `points`. */
 export type FlowBand = { q10: number; q90: number };
 
@@ -371,7 +413,7 @@ export type FlowForecast = {
   color: string;
   regime: string;
   confidence: number;
-  outlook: "up" | "down";
+  outlook: "up" | "down" | "flat";
   change_pct: number;
   points: FlowPoint[];
   /** pooled_v1 | local_tsfm | regime_prior | regime_prior_fallback */
@@ -396,7 +438,7 @@ export type SectorFlow = {
   hist_range?: HistRange | string;
   hist_range_label?: string;
   forecasts: FlowForecast[];
-  consensus: { change_pct: number; outlook: "up" | "down" } | null;
+  consensus: { change_pct: number; outlook: "up" | "down" | "flat" } | null;
   forecast_pending?: boolean;
   /** Engine backing the one learnable arm on this payload. */
   forecast_engine?: string;

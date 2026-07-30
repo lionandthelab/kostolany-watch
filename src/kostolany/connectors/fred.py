@@ -19,6 +19,20 @@ FRED_SERIES = {
     "BAA10Y": "credit_spread",
 }
 
+# Publication lag in CALENDAR days, applied to each series' observation index
+# BEFORE the business-day resample. FRED stamps the June M2SL print on Jun-01,
+# but the H.6 release lands ~4 weeks into the following month — without this
+# shift the feature panel sees macro prints ~1-2 months before they existed.
+# Market-close series (VIX) are public in real time; index-computed series
+# (BAA10Y) post next day. This is the S-size fix, NOT an ALFRED vintage rebuild.
+FRED_PUBLICATION_LAG_DAYS = {
+    "FEDFUNDS": 31,
+    "M2SL": 57,
+    "T10Y2Y": 0,
+    "VIXCLS": 0,
+    "BAA10Y": 1,
+}
+
 
 def _fetch_fred_series(series_id: str, api_key: str, start: str) -> pd.Series:
     url = "https://api.stlouisfed.org/fred/series/observations"
@@ -68,7 +82,10 @@ def _yahoo_proxy_panel(start: str) -> pd.DataFrame:
     out["fed_funds"] = df.get("irx")
     out["yield_curve"] = (df.get("tnx") - df.get("irx")).astype(float) if "tnx" in df and "irx" in df else np.nan
     out["m2"] = np.nan  # no reliable free daily M2 via Yahoo
-    out["credit_spread"] = out["vix"] * 0.05  # crude stand-in
+    # No fabricated credit_spread: a vix*0.05 stand-in made credit_proxy and
+    # sentiment_override perfectly collinear. Absent means absent; the feature
+    # layer falls back to its own (distinct) local proxy.
+    out["credit_spread"] = np.nan
     return out
 
 
@@ -76,7 +93,9 @@ def fetch_fred_panel(start: str | None = None, *, use_cache: bool = True) -> pd.
     """Return daily-ish panel of macro features (forward-filled from native frequencies)."""
     settings = get_settings()
     start = start or settings.data_start
-    cache_key = f"fred_panel_v2_{start}"
+    # v3: publication lags applied + fabricated credit_spread removed. Old v2
+    # blobs carry look-ahead macro prints and must never be reused.
+    cache_key = f"fred_panel_v3_{start}"
     if use_cache:
         cached = read_cache(cache_key, max_age_hours=24)
         if cached is not None and not cached.empty:
@@ -87,7 +106,12 @@ def fetch_fred_panel(start: str | None = None, *, use_cache: bool = True) -> pd.
         cols = {}
         for sid, name in FRED_SERIES.items():
             try:
-                cols[name] = _fetch_fred_series(sid, key, start)
+                s = _fetch_fred_series(sid, key, start)
+                lag = FRED_PUBLICATION_LAG_DAYS.get(sid, 0)
+                if lag:
+                    s = s.copy()
+                    s.index = s.index + pd.Timedelta(days=lag)
+                cols[name] = s
             except Exception:  # noqa: BLE001
                 continue
         if not cols:

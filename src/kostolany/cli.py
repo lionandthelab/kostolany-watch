@@ -126,7 +126,7 @@ def snapshot(symbol: str = "SYNTH", model: str = "ensemble") -> None:
 
 @app.command("fetch-data")
 def fetch_data(
-    symbol: str = typer.Option("KS11", help="KS11 | ^GSPC | ticker"),
+    symbol: str = typer.Option("^GSPC", help="^GSPC | BTC-USD | ticker"),
     start: str = typer.Option("2015-01-01"),
 ) -> None:
     """Fetch & cache KRX/Yahoo + FRED extras."""

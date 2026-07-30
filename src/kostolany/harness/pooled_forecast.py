@@ -22,9 +22,10 @@ from kostolany.harness.commercial_eval import (
     _safe_corr,
 )
 
+# KS11 retired 2026-07-30 (owner decision). ^GSPC removed as a duplicate of
+# SPY (rho ~ 0.999): a duplicated instrument contributes zero information while
+# inflating any design-effect calculation.
 DEFAULT_PANEL = (
-    "KS11",
-    "^GSPC",
     "BTC-USD",
     "SPY",
     "EEM",
@@ -37,16 +38,32 @@ DEFAULT_PANEL = (
     "XLK",
 )
 
+# Explicit registry — NO fall-through. The old "everything else is equity"
+# default silently routed unregistered tickers to a model that never saw them.
+_EQUITY_SYMBOLS = {
+    "SPY", "^GSPC", "QQQ", "^NDX", "IWM", "^RUT", "RSP", "EEM", "EWJ", "FXI",
+    "EWG", "EWU", "INDA", "XLK", "XLF", "XLV", "XBI", "XLE", "XLB", "XLI",
+    "XLU", "XLRE", "XLY", "XLP", "XLC",
+}
+
 
 def _asset_group(symbol: str) -> tuple[float, float, float, float]:
+    """(equity, commodity, bond, crypto) one-hot; all-zero for UNKNOWN symbols.
+
+    An unknown symbol gets no group, which makes it ineligible for the pooled
+    head (`flows._pooled_eligible` requires equity > 0.5) — it falls back to
+    the per-market LocalTSFM arm instead of a model that never saw it.
+    """
     symbol = symbol.upper()
     if "BTC" in symbol:
         return (0.0, 0.0, 0.0, 1.0)
     if symbol in {"GLD", "USO", "SLV", "PDBC"}:
         return (0.0, 1.0, 0.0, 0.0)
-    if symbol in {"TLT", "IEF", "HYG"}:
+    if symbol in {"TLT", "IEF", "SHY", "HYG", "LQD"}:
         return (0.0, 0.0, 1.0, 0.0)
-    return (1.0, 0.0, 0.0, 0.0)
+    if symbol in _EQUITY_SYMBOLS:
+        return (1.0, 0.0, 0.0, 0.0)
+    return (0.0, 0.0, 0.0, 0.0)
 
 
 def _tabular_design(X: pd.DataFrame, symbol: str) -> pd.DataFrame:
