@@ -31,6 +31,7 @@ export type Messages = {
     regime: string;
     macro: string;
     news: string;
+    guide: string;
     about: string;
     aboutBack: string;
     language: string;
@@ -105,12 +106,34 @@ export type Messages = {
     finaleBody: string;
     disclaimer: string;
   };
+  guide: {
+    title: string;
+    lead: string;
+    back: string;
+    cadence: string;
+    rss: string;
+  };
+  newsletter: {
+    title: string;
+    lead: string;
+    emailLabel: string;
+    placeholder: string;
+    submit: string;
+    submitting: string;
+    success: string;
+    already: string;
+    invalid: string;
+    rateLimited: string;
+    error: string;
+    note: string;
+  };
   seo: {
     home: { title: string; description: string };
     watch: { title: string; description: string };
     macro: { title: string; description: string };
     news: { title: string; description: string };
     about: { title: string; description: string };
+    guide: { title: string; description: string };
   };
   regimes: Record<"A1" | "A2" | "A3" | "B1" | "B2" | "B3", RegimeCopy>;
   models: Record<"momo" | "hmm" | "gbm" | "tsfm", ModelCopy>;

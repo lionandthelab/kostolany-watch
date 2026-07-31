@@ -610,6 +610,60 @@ export async function fetchFearGreed(refresh = false): Promise<FearGreedGauge> {
   return fetchJson(`${API}/flows/gauge${q}`, refresh ? 1 : 3);
 }
 
+export type NewsletterSubscribeResult = {
+  ok: boolean;
+  status: string;
+  disclaimer?: string;
+  error?: string;
+};
+
+export async function subscribeNewsletter(
+  email: string,
+  opts: { locale?: string; source?: string; website?: string } = {},
+): Promise<NewsletterSubscribeResult> {
+  const res = await fetch(`${API}/newsletter/subscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email,
+      locale: opts.locale ?? "ko",
+      source: opts.source ?? "web",
+      website: opts.website ?? "",
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as NewsletterSubscribeResult & {
+    detail?: string;
+  };
+  if (!res.ok) {
+    const detail = data.detail || data.error || String(res.status);
+    throw new Error(detail);
+  }
+  return data;
+}
+
+export type RemoteBrief = {
+  slug: string;
+  kind: "weekly" | "daily" | string;
+  date: string;
+  title: { ko: string; en: string };
+  description?: { ko: string; en: string };
+  body?: { ko: string; en: string };
+};
+
+export async function fetchBriefs(limit = 40): Promise<RemoteBrief[]> {
+  const res = await fetch(`${API}/briefs?limit=${limit}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { items?: RemoteBrief[] };
+  return data.items || [];
+}
+
+export async function fetchBrief(slug: string): Promise<RemoteBrief | null> {
+  const res = await fetch(`${API}/briefs/${encodeURIComponent(slug)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return (await res.json()) as RemoteBrief;
+}
+
 export type NewsTone = {
   score: number;
   label: string;

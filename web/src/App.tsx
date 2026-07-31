@@ -3,7 +3,9 @@ import MacroDesk from "./MacroDesk";
 import Landing from "./Landing";
 import NewsDesk from "./NewsDesk";
 import WatchApp from "./WatchApp";
+import GuideDesk from "./GuideDesk";
 import { trackEvent, trackPageView } from "./analytics";
+import { getArticle } from "./guide/catalog";
 import { useLocale, useT } from "./i18n";
 import { applySeo, type SeoMode } from "./seo";
 
@@ -16,52 +18,59 @@ const HASH_MAP: Record<string, string> = {
   "#news": "/news",
   "#about": "/about",
   "#landing": "/about",
+  "#guide": "/guide",
 };
 
-function modeFromPath(): Mode {
+function parsePath(): { mode: Mode; guideSlug: string | null } {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  if (path === "/watch") return "watch";
-  if (path === "/macro") return "macro";
-  if (path === "/news") return "news";
-  if (path === "/about") return "about";
-  return "home";
+  if (path === "/watch") return { mode: "watch", guideSlug: null };
+  if (path === "/macro") return { mode: "macro", guideSlug: null };
+  if (path === "/news") return { mode: "news", guideSlug: null };
+  if (path === "/about") return { mode: "about", guideSlug: null };
+  if (path === "/guide") return { mode: "guide", guideSlug: null };
+  if (path.startsWith("/guide/")) {
+    const slug = path.slice("/guide/".length).split("/")[0] || null;
+    return { mode: "guide", guideSlug: slug };
+  }
+  return { mode: "home", guideSlug: null };
 }
 
-function pathFor(mode: Mode): string {
+function pathFor(mode: Mode, guideSlug?: string | null): string {
   if (mode === "watch") return "/watch";
   if (mode === "macro") return "/macro";
   if (mode === "news") return "/news";
   if (mode === "about") return "/about";
+  if (mode === "guide") return guideSlug ? `/guide/${guideSlug}` : "/guide";
   return "/";
 }
 
-/** Old hash bookmarks → path routes (SEO-friendly). */
 function migrateHashIfNeeded() {
   const h = window.location.hash;
   if (!h) return;
   const next = HASH_MAP[h];
-  if (next) {
-    window.history.replaceState(null, "", next);
-  }
+  if (next) window.history.replaceState(null, "", next);
 }
 
 export default function App() {
   const t = useT();
   const { locale } = useLocale();
-  const [mode, setMode] = useState<Mode>(() => {
-    if (typeof window === "undefined") return "home";
+  const initial = typeof window !== "undefined" ? (() => {
     migrateHashIfNeeded();
-    return modeFromPath();
-  });
+    return parsePath();
+  })() : { mode: "home" as Mode, guideSlug: null };
 
-  const go = useCallback((next: Mode, source = "nav") => {
+  const [mode, setMode] = useState<Mode>(initial.mode);
+  const [guideSlug, setGuideSlug] = useState<string | null>(initial.guideSlug);
+
+  const go = useCallback((next: Mode, source = "nav", slug: string | null = null) => {
     setMode(next);
-    const path = pathFor(next);
-    if (window.location.pathname !== path) {
-      window.history.pushState(null, "", path);
+    setGuideSlug(next === "guide" ? slug : null);
+    const path = pathFor(next, next === "guide" ? slug : null);
+    if (window.location.pathname.replace(/\/+$/, "") !== path.replace(/\/+$/, "")) {
+      window.history.pushState(null, "", path.endsWith("/") && path !== "/" ? path : path);
     }
     window.scrollTo(0, 0);
-    trackEvent("navigate", { screen: next, source });
+    trackEvent("navigate", { screen: next, source, slug: slug || undefined });
   }, []);
 
   const enterWatch = useCallback(() => go("watch", "cta_or_nav"), [go]);
@@ -69,26 +78,76 @@ export default function App() {
   const enterNews = useCallback(() => go("news", "nav"), [go]);
   const enterAbout = useCallback(() => go("about", "nav"), [go]);
   const enterHome = useCallback(() => go("home", "nav"), [go]);
+  const enterGuide = useCallback(() => go("guide", "nav", null), [go]);
+  const openGuideArticle = useCallback((slug: string) => go("guide", "guide_list", slug), [go]);
 
   useEffect(() => {
     migrateHashIfNeeded();
-    const onPop = () => setMode(modeFromPath());
+    const onPop = () => {
+      const p = parsePath();
+      setMode(p.mode);
+      setGuideSlug(p.guideSlug);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   useEffect(() => {
+    const path = pathFor(mode, guideSlug);
+    if (mode === "guide" && guideSlug) {
+      const art = getArticle(guideSlug);
+      const lang = locale === "en" ? "en" : "ko";
+      if (art) {
+        applySeo(
+          { title: art.title[lang], description: art.description[lang] },
+          `/guide/${guideSlug}/`,
+          locale,
+        );
+        trackPageView(`/guide/${guideSlug}/`, art.title[lang]);
+        return;
+      }
+    }
+    if (mode === "guide") {
+      applySeo(t.seo.guide, "/guide/", locale);
+      trackPageView("/guide/", t.seo.guide.title);
+      return;
+    }
     const key = mode === "home" ? "home" : mode;
     applySeo(t.seo[key], pathFor(mode), locale);
-    trackPageView(pathFor(mode), document.title);
-  }, [mode, t.seo, locale]);
+    trackPageView(path, document.title);
+  }, [mode, guideSlug, t.seo, locale]);
 
+  if (mode === "guide") {
+    return (
+      <GuideDesk
+        slug={guideSlug}
+        onWatch={enterWatch}
+        onMacro={enterMacro}
+        onNews={enterNews}
+        onAbout={enterAbout}
+        onGuideHome={enterGuide}
+        onOpenArticle={openGuideArticle}
+      />
+    );
+  }
   if (mode === "macro") {
-    return <MacroDesk onWatch={enterWatch} onAbout={enterAbout} onNews={enterNews} />;
+    return (
+      <MacroDesk
+        onWatch={enterWatch}
+        onAbout={enterAbout}
+        onNews={enterNews}
+        onGuide={enterGuide}
+      />
+    );
   }
   if (mode === "news") {
     return (
-      <NewsDesk onWatch={enterWatch} onMacro={enterMacro} onAbout={enterAbout} />
+      <NewsDesk
+        onWatch={enterWatch}
+        onMacro={enterMacro}
+        onAbout={enterAbout}
+        onGuide={enterGuide}
+      />
     );
   }
   if (mode === "about" || mode === "home") {
@@ -102,6 +161,10 @@ export default function App() {
           trackEvent("cta_macro", { from: mode });
           enterMacro();
         }}
+        onGuide={() => {
+          trackEvent("cta_guide", { from: mode });
+          enterGuide();
+        }}
         onHome={mode === "about" ? enterHome : undefined}
       />
     );
@@ -111,6 +174,7 @@ export default function App() {
       onMacro={enterMacro}
       onAbout={enterAbout}
       onNews={enterNews}
+      onGuide={enterGuide}
     />
   );
 }

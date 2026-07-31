@@ -3,14 +3,16 @@ import { CYCLE, REGIME_GUIDE, TOP_MODELS } from "./eggGeometry";
 import { useT } from "./i18n";
 import LocaleSwitcher from "./LocaleSwitcher";
 import AdSlot from "./AdSlot";
+import NewsletterSignup from "./NewsletterSignup";
 
 type Props = {
   onEnter: () => void;
   onMacro?: () => void;
+  onGuide?: () => void;
   onHome?: () => void;
 };
 
-export default function Landing({ onEnter, onMacro }: Props) {
+export default function Landing({ onEnter, onMacro, onGuide }: Props) {
   const t = useT();
 
   return (
@@ -30,6 +32,11 @@ export default function Landing({ onEnter, onMacro }: Props) {
             {onMacro && (
               <button type="button" className="btn-ghost" onClick={onMacro}>
                 {t.landing.ctaMacro}
+              </button>
+            )}
+            {onGuide && (
+              <button type="button" className="btn-ghost" onClick={onGuide}>
+                {t.nav.guide}
               </button>
             )}
           </div>
@@ -94,6 +101,7 @@ export default function Landing({ onEnter, onMacro }: Props) {
         <button type="button" className="btn-primary" onClick={onEnter}>
           {t.landing.ctaWatch}
         </button>
+        <NewsletterSignup source="landing" className="newsletter-signup--landing" />
         <p className="disclaimer landing-disclaimer">{t.landing.disclaimer}</p>
       </section>
     </div>

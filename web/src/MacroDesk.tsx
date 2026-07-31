@@ -16,6 +16,7 @@ type Props = {
   onWatch?: () => void;
   onAbout?: () => void;
   onNews?: () => void;
+  onGuide?: () => void;
 };
 
 const THEME_COLOR: Record<string, string> = {
@@ -82,7 +83,7 @@ function MacroCardView({ card }: { card: MacroCard }) {
   );
 }
 
-export default function MacroDesk({ onWatch, onAbout, onNews }: Props) {
+export default function MacroDesk({ onWatch, onAbout, onNews, onGuide }: Props) {
   const t = useT();
   const [board, setBoard] = useState<MacroBoard | null>(null);
   const [news, setNews] = useState<NewsDesk | null>(null);
@@ -126,6 +127,11 @@ export default function MacroDesk({ onWatch, onAbout, onNews }: Props) {
           {onNews && (
             <button type="button" className="desk-tab" onClick={onNews}>
               {t.nav.news}
+            </button>
+          )}
+          {onGuide && (
+            <button type="button" className="desk-tab" onClick={onGuide}>
+              {t.nav.guide}
             </button>
           )}
         </div>

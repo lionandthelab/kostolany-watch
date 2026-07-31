@@ -6,6 +6,7 @@ export const en: Messages = {
     regime: "Regime",
     macro: "Macro",
     news: "News",
+    guide: "Guide",
     about: "About",
     aboutBack: "← About",
     language: "Language",
@@ -82,6 +83,27 @@ export const en: Messages = {
     disclaimer:
       "For education and research on regime recognition only — not investment advice or a solicitation.",
   },
+  guide: {
+    title: "Guide",
+    lead: "Egg & six-regime primers plus weekly briefs. Educational — not investment advice.",
+    back: "← All guides",
+    cadence: "Weekly Claude briefs + daily auto regime cards.",
+    rss: "RSS",
+  },
+  newsletter: {
+    title: "Weekly brief by email",
+    lead: "Get a note when a new weekly regime brief goes live. Not a trade signal.",
+    emailLabel: "Email",
+    placeholder: "you@example.com",
+    submit: "Subscribe",
+    submitting: "Saving…",
+    success: "You're on the list. You'll get a welcome note and Friday weekly briefs.",
+    already: "This email is already subscribed.",
+    invalid: "Please check the email address.",
+    rateLimited: "Too many requests — try again shortly.",
+    error: "Could not subscribe. Please try again.",
+    note: "Educational updates only — not investment advice. No spam.",
+  },
   seo: {
     home: {
       title: "Kostolany Watch — six-regime probability lens",
@@ -104,6 +126,10 @@ export const en: Messages = {
     about: {
       title: "About",
       description: "What Kostolany Watch does, the six regimes, and three AI analysts.",
+    },
+    guide: {
+      title: "Guide — egg & regimes",
+      description: "Kostolany egg primers, six-regime notes, and weekly briefs. Educational.",
     },
   },
   regimes: {

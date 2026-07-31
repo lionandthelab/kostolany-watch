@@ -154,5 +154,27 @@ def replay(
     console.print_json(json.dumps(payload, ensure_ascii=False))
 
 
+@app.command("newsletter-count")
+def newsletter_count() -> None:
+    """Count local weekly-brief email waitlist rows (artifacts/newsletter)."""
+    from kostolany.newsletter import load_subscribers, _store_path
+
+    path = _store_path()
+    n = len(load_subscribers(path))
+    console.print(f"{n} subscriber(s) in {path}")
+
+
+@app.command("newsletter-dispatch")
+def newsletter_dispatch(
+    dry_run: bool = typer.Option(True, help="Default dry-run; pass --no-dry-run to send"),
+    force: bool = typer.Option(False, help="Re-send even if slug already dispatched"),
+) -> None:
+    """Dispatch latest weekly brief from live RSS (uses RESEND_API_KEY)."""
+    from kostolany.newsletter import dispatch_latest
+
+    result = dispatch_latest(force=force, dry_run=dry_run)
+    console.print_json(json.dumps(result, ensure_ascii=False))
+
+
 if __name__ == "__main__":
     app()

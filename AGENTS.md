@@ -57,6 +57,9 @@ kostolany demo
 kostolany fetch-data --symbol KS11
 kostolany serve
 cd web && npm run dev
+
+# weekly brief (Friday KST) — see docs/WEEKLY_BRIEF.md
+cd web && npm run weekly:new
 ```
 
 ## Data connectors

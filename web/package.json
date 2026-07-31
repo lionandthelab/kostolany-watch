@@ -4,9 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/build-guide.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/build-guide.mjs",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:guide": "node scripts/build-guide.mjs",
+    "weekly:new": "node scripts/new-weekly-brief.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

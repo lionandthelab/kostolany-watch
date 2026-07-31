@@ -7,10 +7,10 @@ from collections import OrderedDict, deque
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from kostolany.calibration import calibration_payload
 from kostolany.engine import KostolanyEngine, fit_analyst_bundle
@@ -31,6 +31,24 @@ WATCH_DEFAULT_MODELS = "momo,hmm,gbm,tsfm"
 WATCH_DEFAULT_LIMIT = 360
 WATCH_DEFAULT_STRIDE = 2
 MAX_WATCH_QUEUE = max(6, 2 * len(WATCH_MARKETS))
+
+
+class NewsletterSubscribeBody(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    locale: str = Field("ko", max_length=16)
+    source: str = Field("web", max_length=64)
+    website: str = Field("", max_length=200, description="Honeypot; leave empty")
+
+
+class BriefUpsertBody(BaseModel):
+    slug: str = Field(..., min_length=3, max_length=80)
+    kind: str = Field(..., pattern="^(weekly|daily)$")
+    date: str = Field(..., min_length=10, max_length=10)
+    title: dict[str, str]
+    description: dict[str, str] | None = None
+    body: dict[str, str]
+    source: str = Field("api", max_length=64)
+    dispatch: bool = Field(False, description="Also email subscribers after save")
 
 _watch_bg_lock = threading.Lock()
 _watch_refreshing: set[str] = set()
@@ -723,6 +741,95 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f"Failed to build flow: {exc}") from exc
+
+    @app.post("/newsletter/subscribe")
+    def newsletter_subscribe(payload: NewsletterSubscribeBody, request: Request) -> dict[str, Any]:
+        """Collect weekly-brief email signups; welcome mail via Resend when configured."""
+        from kostolany.newsletter import subscribe as newsletter_subscribe_fn
+
+        client = request.client.host if request.client else "anon"
+        result = newsletter_subscribe_fn(
+            payload.email,
+            locale=payload.locale,
+            source=payload.source,
+            client_key=client,
+            honeypot=payload.website,
+        )
+        if not result.get("ok") and result.get("status") == "rate_limited":
+            raise HTTPException(status_code=429, detail="too_many_requests")
+        if not result.get("ok") and result.get("status") == "invalid":
+            raise HTTPException(status_code=400, detail="invalid_email")
+        return result
+
+    @app.get("/briefs")
+    def briefs_list(
+        kind: str | None = Query(None, pattern="^(weekly|daily)$"),
+        limit: int = Query(40, ge=1, le=200),
+    ) -> dict[str, Any]:
+        from kostolany.briefs import list_briefs
+
+        return {"items": list_briefs(kind=kind, limit=limit)}  # type: ignore[arg-type]
+
+    @app.get("/briefs/{slug}")
+    def briefs_get(slug: str) -> dict[str, Any]:
+        from kostolany.briefs import get_brief
+
+        brief = get_brief(slug)
+        if brief is None:
+            raise HTTPException(status_code=404, detail="not_found")
+        return brief
+
+    @app.post("/briefs")
+    def briefs_upsert(payload: BriefUpsertBody, request: Request) -> dict[str, Any]:
+        """Local Claude weekly script / operators publish briefs here (cron secret)."""
+        from kostolany.briefs import save_brief
+        from kostolany.newsletter import cron_secret_ok, dispatch_latest
+
+        secret = request.headers.get("x-cron-secret") or request.query_params.get("secret")
+        if not cron_secret_ok(secret):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        try:
+            brief = save_brief(payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        out: dict[str, Any] = {"ok": True, "brief": brief}
+        if payload.dispatch:
+            out["dispatch"] = dispatch_latest(kind=payload.kind, force=True)
+        return out
+
+    @app.post("/briefs/daily/generate")
+    def briefs_daily_generate(
+        request: Request,
+        dispatch: bool = Query(True, description="Email subscribers after generate"),
+        force: bool = Query(False),
+    ) -> dict[str, Any]:
+        """Cloud Scheduler: build deterministic daily card from live desks + optional email."""
+        from kostolany.briefs import generate_and_save_daily
+        from kostolany.newsletter import cron_secret_ok, dispatch_latest
+
+        secret = request.headers.get("x-cron-secret") or request.query_params.get("secret")
+        if not cron_secret_ok(secret):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        brief = generate_and_save_daily()
+        out: dict[str, Any] = {"ok": True, "brief": brief}
+        if dispatch:
+            out["dispatch"] = dispatch_latest(kind="daily", force=force)
+        return out
+
+    @app.post("/newsletter/dispatch")
+    def newsletter_dispatch(
+        request: Request,
+        force: bool = Query(False, description="Re-send even if slug already dispatched"),
+        dry_run: bool = Query(False, description="Parse feed + count only; no send"),
+        kind: str = Query("weekly", pattern="^(weekly|daily)$"),
+    ) -> dict[str, Any]:
+        """Email latest weekly or daily brief to subscribers."""
+        from kostolany.newsletter import cron_secret_ok, dispatch_latest
+
+        secret = request.headers.get("x-cron-secret") or request.query_params.get("secret")
+        if not cron_secret_ok(secret):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        return dispatch_latest(force=force, dry_run=dry_run, kind=kind)
 
     return app
 

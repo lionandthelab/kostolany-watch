@@ -77,13 +77,18 @@ function ExplainModal({
   );
 }
 
-type Props = { onMacro?: () => void; onAbout?: () => void; onNews?: () => void };
+type Props = {
+  onMacro?: () => void;
+  onAbout?: () => void;
+  onNews?: () => void;
+  onGuide?: () => void;
+};
 
 function fill(tpl: string, slots: Record<string, string>): string {
   return tpl.replace(/\{(\w+)\}/g, (_, k) => slots[k] ?? `{${k}}`);
 }
 
-export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
+export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
   const t = useT();
   const { formatDate } = useLocale();
   const [symbol, setSymbol] = useState<string>("^GSPC");
@@ -357,6 +362,11 @@ export default function WatchApp({ onMacro, onAbout, onNews }: Props) {
           {onNews && (
             <button type="button" className="desk-tab" onClick={onNews}>
               {t.nav.news}
+            </button>
+          )}
+          {onGuide && (
+            <button type="button" className="desk-tab" onClick={onGuide}>
+              {t.nav.guide}
             </button>
           )}
         </div>

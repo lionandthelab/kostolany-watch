@@ -3,7 +3,7 @@
 export const SITE_URL = "https://kostolany-watch.web.app";
 export const SITE_NAME = "Kostolany Watch";
 
-export type SeoMode = "home" | "watch" | "macro" | "news" | "about";
+export type SeoMode = "home" | "watch" | "macro" | "news" | "about" | "guide";
 
 export type SeoCopy = {
   title: string;

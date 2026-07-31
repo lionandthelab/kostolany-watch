@@ -53,12 +53,13 @@ type Props = {
   onWatch?: () => void;
   onMacro?: () => void;
   onAbout?: () => void;
+  onGuide?: () => void;
   /** @deprecated use onMacro */
   onFlows?: () => void;
   onBack?: () => void;
 };
 
-export default function NewsDesk({ onWatch, onMacro, onAbout, onFlows, onBack }: Props) {
+export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, onBack }: Props) {
   const t = useT();
   const { formatDate } = useLocale();
   const goMacro = onMacro ?? onFlows;
@@ -105,6 +106,11 @@ export default function NewsDesk({ onWatch, onMacro, onAbout, onFlows, onBack }:
           <button type="button" className="desk-tab is-active" aria-current="page">
             {t.nav.news}
           </button>
+          {onGuide && (
+            <button type="button" className="desk-tab" onClick={onGuide}>
+              {t.nav.guide}
+            </button>
+          )}
         </div>
         <div className="desk-nav-end">
           <LocaleSwitcher />

@@ -1,0 +1,52 @@
+# Reminder issue every Thursday so Friday publish is hard to miss.
+name: Weekly brief reminder
+
+on:
+  schedule:
+    # Thursday 00:00 UTC ≈ Thursday 09:00 KST
+    - cron: "0 0 * * 4"
+  workflow_dispatch:
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open reminder issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `Weekly regime brief — publish Friday (KST)`;
+            const body = [
+              "## Checklist",
+              "",
+              "See [docs/WEEKLY_BRIEF.md](../blob/main/docs/WEEKLY_BRIEF.md).",
+              "",
+              "```bash",
+              "cd web && npm run weekly:new",
+              "# edit articles.json TODOs (ko/en)",
+              "node scripts/new-weekly-brief.mjs --date YYYY-MM-DD --publish",
+              "npm run build:guide",
+              "# deploy hosting",
+              "```",
+              "",
+              "- Educational only — not investment advice.",
+              "- After deploy: optional GSC URL inspection + one channel post.",
+            ].join("\n");
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 20,
+            });
+            if (issues.data.some((i) => i.title === title)) {
+              core.info("Reminder already open; skip");
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+            });

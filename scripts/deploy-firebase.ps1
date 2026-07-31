@@ -31,8 +31,27 @@ Pop-Location
 Write-Host "== Deploy Cloud Run API ==" -ForegroundColor Cyan
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com firebasehosting.googleapis.com --quiet
 
-$envArgs = @("DATA_START=2015-01-01", "GCS_CACHE_BUCKET=kostolany-watch-cache")
+# Load root .env into process (FRED / Resend / cron secret) without printing values
+if (Test-Path ".env") {
+  Get-Content ".env" | ForEach-Object {
+    if ($_ -match '^\s*#' -or $_ -notmatch '=') { return }
+    $k, $v = $_.Split('=', 2)
+    $k = $k.Trim(); $v = $v.Trim().Trim('"').Trim("'")
+    if ($k -and [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($k))) {
+      [Environment]::SetEnvironmentVariable($k, $v, "Process")
+    }
+  }
+}
+
+$envArgs = @(
+  "DATA_START=2015-01-01",
+  "GCS_CACHE_BUCKET=kostolany-watch-cache",
+  "NEWSLETTER_SITE_URL=https://kostolany-watch.web.app"
+)
 if ($env:FRED_API_KEY) { $envArgs += "FRED_API_KEY=$($env:FRED_API_KEY)" }
+if ($env:RESEND_API_KEY) { $envArgs += "RESEND_API_KEY=$($env:RESEND_API_KEY)" }
+if ($env:RESEND_FROM) { $envArgs += "RESEND_FROM=$($env:RESEND_FROM)" }
+if ($env:NEWSLETTER_CRON_SECRET) { $envArgs += "NEWSLETTER_CRON_SECRET=$($env:NEWSLETTER_CRON_SECRET)" }
 $envJoined = ($envArgs -join ",")
 
 # Ensure durable cache bucket exists (idempotent; ignore already-exists noise)
@@ -69,6 +88,11 @@ if (Test-Path $SaKey) {
 }
 
 firebase deploy --only hosting --project $ProjectId --non-interactive
+
+if ($env:NEWSLETTER_CRON_SECRET -or $env:RESEND_API_KEY) {
+  Write-Host "== Newsletter Cloud Scheduler ==" -ForegroundColor Cyan
+  & "$PSScriptRoot\setup-newsletter-scheduler.ps1" -ProjectId $ProjectId -Region $Region -Service $Service
+}
 
 Write-Host "Done." -ForegroundColor Green
 Write-Host "Hosting: https://$ProjectId.web.app"

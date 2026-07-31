@@ -19,6 +19,10 @@
       {
         "source": "/sitemap.xml",
         "headers": [{ "key": "Cache-Control", "value": "public,max-age=3600" }]
+      },
+      {
+        "source": "/guide/feed.xml",
+        "headers": [{ "key": "Cache-Control", "value": "public,max-age=3600" }]
       }
     ],
     "rewrites": [
@@ -28,6 +32,14 @@
           "serviceId": "kostolany-api",
           "region": "asia-northeast3"
         }
+      },
+      {
+        "source": "/guide",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/guide/",
+        "destination": "/index.html"
       },
       {
         "source": "**",

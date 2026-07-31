@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Kostolany Watch Guide</title>
+    <link>https://kostolany-watch.web.app/guide/</link>
+    <description>코스톨라니 달걀·6국면 해설과 주간 국면 브리핑 (교육·연구용, 투자 권유 아님)</description>
+    <language>ko</language>
+    <item>
+      <title>코스톨라니 6국면(A1–B3) 해설</title>
+      <link>https://kostolany-watch.web.app/guide/six-regimes/</link>
+      <guid isPermaLink="true">https://kostolany-watch.web.app/guide/six-regimes/</guid>
+      <pubDate>Fri, 31 Jul 2026 00:00:00 GMT</pubDate>
+      <description>A1–A3 상승 구간과 B1–B3 하락 구간을 교육용으로 정리합니다. 매수·매도 지시가 아닙니다.</description>
+    </item>
+    <item>
+      <title>코스톨라니 달걀이란? 시장 사이클을 한눈에 보는 법</title>
+      <link>https://kostolany-watch.web.app/guide/kostolany-egg/</link>
+      <guid isPermaLink="true">https://kostolany-watch.web.app/guide/kostolany-egg/</guid>
+      <pubDate>Fri, 31 Jul 2026 00:00:00 GMT</pubDate>
+      <description>앙드레 코스톨라니의 달걀 모형으로 상승·하락 국면을 읽는 교육용 안내. 투자 권유가 아닙니다.</description>
+    </item>
+  </channel>
+</rss>

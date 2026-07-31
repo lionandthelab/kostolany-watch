@@ -1,0 +1,38 @@
+[
+  {
+    "slug": "kostolany-egg",
+    "date": "2026-07-31",
+    "kind": "evergreen",
+    "status": "published",
+    "title": {
+      "ko": "코스톨라니 달걀이란? 시장 사이클을 한눈에 보는 법",
+      "en": "What is the Kostolany egg? A simple map of market cycles"
+    },
+    "description": {
+      "ko": "앙드레 코스톨라니의 달걀 모형으로 상승·하락 국면을 읽는 교육용 안내. 투자 권유가 아닙니다.",
+      "en": "An educational guide to André Kostolany’s egg model for reading market regimes. Not investment advice."
+    },
+    "body": {
+      "ko": "<p>앙드레 코스톨라니(André Kostolany)는 시장을 ‘달걀’ 모양의 사이클로 설명했습니다. 오른쪽으로 올라가며 낙관이 커지고, 왼쪽으로 내려가며 비관이 커진다는 비유입니다. Kostolany Watch는 이 비유를 <strong>교육·연구용 국면 인식</strong> 렌즈로 옮긴 도구입니다.</p><h2>달걀이 말하는 것</h2><p>달걀의 핵심은 “지금 사야 하나”가 아니라 <strong>군중·거래·심리의 위치</strong>를 가늠하는 일입니다. 바닥 직후는 관심이 적고, 천정 부근은 모두가 낙관하는 식의 패턴을 기억하기 쉽게 그려 둔 것입니다.</p><h2>확률로 보는 이유</h2><p>실제 시장은 한 점에 고정되지 않습니다. 그래서 이 사이트는 국면을 단정하지 않고, 여러 신호가 가리키는 방향을 <strong>확률</strong>로 보여 줍니다. 세 AI 분석가의 점이 달걀 테두리에 따로 찍히는 것도 같은 이유입니다.</p><h2>어떻게 쓰면 좋은가</h2><ul><li>뉴스 헤드라인만 보고 결론 내리기 전에, 국면 화면에서 위치가 어디에 가까운지 확인합니다.</li><li>미국(S&amp;P 500)과 가상화폐를 나눠 보며, 자산마다 리듬이 다를 수 있음을 기억합니다.</li><li>확신이 높다고 해서 매매 신호가 되는 것은 아닙니다. 교육용 보조 지표입니다.</li></ul><p><a href=\"/watch\">국면 화면 열기</a> · <a href=\"/guide/six-regimes\">여섯 국면 해설 읽기</a></p><p class=\"disclaimer\">본 정보는 교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.</p>",
+      "en": "<p>André Kostolany described markets as an egg-shaped cycle: optimism climbs the right side; pessimism descends the left. Kostolany Watch turns that metaphor into an <strong>educational regime-recognition</strong> lens.</p><h2>What the egg is for</h2><p>The point is not “buy or sell now,” but estimating where <strong>crowd, activity, and sentiment</strong> sit. After a bottom, attention is scarce; near a peak, almost everyone is bullish. The egg makes that pattern memorable.</p><h2>Why probabilities</h2><p>Markets are rarely a single pin. So this site shows regime leanings as <strong>probabilities</strong>, with three AI marks on the rim rather than one forced answer.</p><h2>How to use it</h2><ul><li>Before reacting to headlines alone, check where the regime view sits on the egg.</li><li>Compare US equities (S&amp;P 500) and crypto — rhythms can differ.</li><li>High confidence is not a trade signal. This is an educational aid.</li></ul><p><a href=\"/watch\">Open the regime view</a> · <a href=\"/guide/six-regimes\">Read the six regimes</a></p><p class=\"disclaimer\">For education and research on regime recognition only — not investment advice.</p>"
+    }
+  },
+  {
+    "slug": "six-regimes",
+    "date": "2026-07-31",
+    "kind": "evergreen",
+    "status": "published",
+    "title": {
+      "ko": "코스톨라니 6국면(A1–B3) 해설",
+      "en": "Kostolany’s six regimes (A1–B3), explained"
+    },
+    "description": {
+      "ko": "A1–A3 상승 구간과 B1–B3 하락 구간을 교육용으로 정리합니다. 매수·매도 지시가 아닙니다.",
+      "en": "An educational walkthrough of up-cycle A1–A3 and down-cycle B1–B3. Not buy/sell instructions."
+    },
+    "body": {
+      "ko": "<p>Kostolany Watch는 사이클을 여섯 구간으로 나눕니다. 아래는 <strong>학습용 지도</strong>이며, 특정 종목의 매매를 지시하지 않습니다.</p><h2>상승 쪽 (달걀 오른쪽)</h2><ul><li><strong>A1 수정(상승)</strong> — 바닥 직후. 관심은 적지만 악재가 많이 반영된 느낌의 구간.</li><li><strong>A2 동행(상승)</strong> — 추세가 자리를 잡고 참여가 늘어나는 구간.</li><li><strong>A3 과장(상승)</strong> — 과열·열광. 모두가 낙관할 때 리스크 인식이 흐려지기 쉬운 구간.</li></ul><h2>하락 쪽 (달걀 왼쪽)</h2><ul><li><strong>B1 수정(하락)</strong> — 고점 이후 조정. 낙관이 남지만 힘이 빠지기 시작.</li><li><strong>B2 동행(하락)</strong> — 하락이 확산되고 심리가 얼어붙는 구간.</li><li><strong>B3 과장(하락)</strong> — 공포·투매. 비관이 극단으로 쏠리기 쉬운 구간.</li></ul><h2>화면에서 보는 법</h2><p>국면 화면의 색·이름·확률은 “정답 라벨”이 아니라 <strong>현재 읽기</strong>입니다. 분석가마다 점이 다르면, 합의가 약한 구간으로 이해하면 됩니다.</p><p><a href=\"/watch\">국면에서 확인하기</a> · <a href=\"/guide/kostolany-egg\">달걀 개념 다시 보기</a></p><p class=\"disclaimer\">본 정보는 교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.</p>",
+      "en": "<p>Kostolany Watch splits the cycle into six stretches. Treat the list below as a <strong>learning map</strong>, not trade instructions.</p><h2>Upside (right of the egg)</h2><ul><li><strong>A1 Correction (up)</strong> — Just off the bottom; little attention, much bad news already priced in.</li><li><strong>A2 Accompanying (up)</strong> — Trend takes hold and participation spreads.</li><li><strong>A3 Exaggeration (up)</strong> — Overheat and euphoria; risk is easy to underweight when everyone is bullish.</li></ul><h2>Downside (left of the egg)</h2><ul><li><strong>B1 Correction (down)</strong> — Post-peak pullback; optimism lingers while strength fades.</li><li><strong>B2 Accompanying (down)</strong> — Decline spreads and sentiment freezes.</li><li><strong>B3 Exaggeration (down)</strong> — Fear and forced selling; pessimism can crowd the room.</li></ul><h2>How to read the UI</h2><p>Colors, names, and probabilities are a <strong>current reading</strong>, not a gold label. When AI marks disagree, treat agreement as weak.</p><p><a href=\"/watch\">Check the regime view</a> · <a href=\"/guide/kostolany-egg\">Back to the egg primer</a></p><p class=\"disclaimer\">For education and research on regime recognition only — not investment advice.</p>"
+    }
+  }
+]

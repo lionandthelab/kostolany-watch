@@ -6,6 +6,7 @@ export const ko: Messages = {
     regime: "국면",
     macro: "거시 흐름",
     news: "뉴스",
+    guide: "가이드",
     about: "서비스 소개",
     aboutBack: "← 소개",
     language: "언어",
@@ -82,6 +83,27 @@ export const ko: Messages = {
     disclaimer:
       "본 정보는 교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.",
   },
+  guide: {
+    title: "가이드",
+    lead: "코스톨라니 달걀·6국면 해설과 주간 브리핑. 교육·연구용이며 투자 권유가 아닙니다.",
+    back: "← 가이드 목록",
+    cadence: "주간은 로컬 Claude 브리핑, 데일리는 자동 국면 카드로 올립니다.",
+    rss: "RSS",
+  },
+  newsletter: {
+    title: "주간 브리핑 이메일",
+    lead: "새 주간 국면 브리핑이 올라가면 알려 드립니다. 매매 신호가 아닙니다.",
+    emailLabel: "이메일",
+    placeholder: "you@example.com",
+    submit: "신청하기",
+    submitting: "등록 중…",
+    success: "신청되었습니다. 확인 메일과 매주 금요일 브리핑을 보내 드립니다.",
+    already: "이미 신청된 이메일입니다.",
+    invalid: "이메일 형식을 확인해 주세요.",
+    rateLimited: "요청이 많습니다. 잠시 후 다시 시도해 주세요.",
+    error: "신청에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+    note: "교육·연구용 안내만 보내며 투자 권유가 아닙니다. 스팸으로 쓰지 않습니다.",
+  },
   seo: {
     home: {
       title: "Kostolany Watch — 코스톨라니 6국면 확률 렌즈",
@@ -104,6 +126,10 @@ export const ko: Messages = {
     about: {
       title: "서비스 소개",
       description: "Kostolany Watch가 무엇을 하는지, 여섯 국면과 세 AI를 소개합니다.",
+    },
+    guide: {
+      title: "가이드 — 달걀·국면 해설",
+      description: "코스톨라니 달걀과 6국면 해설, 주간 국면 브리핑. 교육·연구 목적.",
     },
   },
   regimes: {

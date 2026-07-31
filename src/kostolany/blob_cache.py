@@ -79,6 +79,37 @@ def pull_if_missing(local: Path) -> bool:
 
 def push_async(local: Path) -> None:
     """Upload local cache file to GCS in a daemon thread."""
+    push_blob_async(local, f"cache/{local.name}", content_type="application/json")
+
+
+def pull_blob(local: Path, blob_path: str) -> bool:
+    """Download gs://bucket/<blob_path> if local is missing. Returns True if local exists after."""
+    if local.exists():
+        return True
+    bucket_name = _bucket()
+    client = _gcs_client()
+    if not bucket_name or client is None:
+        return False
+    try:
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        if not blob.exists():
+            return False
+        local.parent.mkdir(parents=True, exist_ok=True)
+        blob.download_to_filename(str(local))
+        return local.exists()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("GCS pull failed %s: %s", blob_path, exc)
+        return False
+
+
+def push_blob_async(
+    local: Path,
+    blob_path: str,
+    *,
+    content_type: str = "application/octet-stream",
+) -> None:
+    """Upload local file to gs://bucket/<blob_path> in a daemon thread."""
     bucket_name = _bucket()
     if not bucket_name or not local.exists():
         return
@@ -87,11 +118,10 @@ def push_async(local: Path) -> None:
         client = _gcs_client()
         if client is None:
             return
-        blob_path = f"cache/{local.name}"
         try:
             bucket = client.bucket(bucket_name)
             blob = bucket.blob(blob_path)
-            blob.upload_from_filename(str(local), content_type="application/json")
+            blob.upload_from_filename(str(local), content_type=content_type)
         except Exception as exc:  # noqa: BLE001
             log.warning("GCS push failed %s: %s", blob_path, exc)
 

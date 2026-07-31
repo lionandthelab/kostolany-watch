@@ -987,6 +987,221 @@ button.btn-primary {
   z-index: 3;
 }
 
+.guide-page {
+  width: min(42rem, calc(100% - 2rem));
+  margin: 0 auto;
+  padding-bottom: 3rem;
+}
+
+.guide-lead {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  max-width: 36rem;
+  line-height: 1.5;
+}
+
+.guide-cadence {
+  margin: 0.55rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.guide-cadence a {
+  color: var(--moss-deep);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.newsletter-signup {
+  margin: 1.25rem 0 1.5rem;
+  padding: 1rem 1.1rem 1.15rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.newsletter-signup h3 {
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.15rem;
+  color: var(--moss-deep);
+}
+
+.newsletter-lead {
+  margin: 0.35rem 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.newsletter-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.newsletter-form input[type="email"] {
+  flex: 1 1 14rem;
+  min-width: 12rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.newsletter-hp {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+  height: 0;
+  width: 0;
+}
+
+.newsletter-msg {
+  margin: 0.55rem 0 0;
+  color: var(--moss-deep);
+  font-size: 0.9rem;
+}
+
+.newsletter-err {
+  margin: 0.55rem 0 0;
+  color: #8a3a2a;
+  font-size: 0.9rem;
+}
+
+.newsletter-note {
+  margin: 0.65rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.newsletter-signup--landing {
+  margin-top: 1.5rem;
+  text-align: left;
+  max-width: 28rem;
+}
+
+.guide-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+}
+
+.guide-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.65rem;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.guide-list-item:hover {
+  border-color: rgba(47, 93, 80, 0.45);
+}
+
+.guide-list-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.guide-list-item strong {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.1rem;
+  color: var(--moss-deep);
+}
+
+.guide-list-desc {
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.guide-article h1 {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  color: var(--moss-deep);
+  margin: 0.35rem 0 1rem;
+  line-height: 1.25;
+}
+
+.guide-kicker {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.guide-back {
+  margin-top: 0.25rem;
+}
+
+.guide-body {
+  font-size: 1.02rem;
+  line-height: 1.65;
+  margin-bottom: 1.5rem;
+}
+
+.guide-body .lead {
+  font-size: 1.08rem;
+  line-height: 1.55;
+  margin: 0 0 1rem;
+}
+
+.guide-body .kicker {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 1.25rem 0 0.15rem;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.guide-body h2 {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.15rem;
+  margin: 1.45rem 0 0.45rem;
+  color: var(--moss-deep);
+}
+
+.guide-body ul,
+.guide-body ol {
+  margin: 0.35rem 0 0.75rem;
+  padding-left: 1.2rem;
+}
+
+.guide-body li {
+  margin: 0.35rem 0;
+}
+
+.guide-body .meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.guide-body .disclaimer {
+  margin-top: 1.5rem;
+}
+
 .ad-slot {
   margin: 1.25rem 0;
   width: 100%;
