@@ -15,8 +15,12 @@ on:
   workflow_dispatch:
     inputs:
       as_of:
-        description: "Override publish date (YYYY-MM-DD) for a dry run"
+        description: "Publish as if it were this date (YYYY-MM-DD). THIS REALLY PUBLISHES."
         required: false
+      dry_run:
+        description: "Build and report only — no deploy, no IndexNow, no commit"
+        type: boolean
+        default: false
 
 concurrency:
   group: daily-publish
@@ -61,6 +65,10 @@ jobs:
           if git diff --quiet -- web/public/sitemap.xml web/public/guide; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No article became live today — skipping deploy."
+          elif [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "DRY RUN — the following would have been published:"
+            git diff --stat -- web/public/sitemap.xml web/public/guide
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
             git diff --stat -- web/public/sitemap.xml web/public/guide
