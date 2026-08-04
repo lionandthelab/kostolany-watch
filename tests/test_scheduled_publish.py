@@ -126,11 +126,54 @@ def test_output_is_pruned_when_a_date_moves_forward():
     assert "pruned" in out
 
 
-def test_daily_workflow_exists_and_targets_the_deploy_branch():
+WORKFLOW = ROOT / ".github" / "workflows" / "daily-publish.yml"
+
+
+def test_daily_workflow_exists():
     """A build-time gate does nothing without something rebuilding nightly."""
-    wf = ROOT / ".github" / "workflows" / "daily-publish.yml"
-    assert wf.exists(), "scheduled articles would never publish themselves"
-    text = wf.read_text(encoding="utf-8")
+    assert WORKFLOW.exists(), "scheduled articles would never publish themselves"
+    text = WORKFLOW.read_text(encoding="utf-8")
     assert "cron:" in text
-    assert "PUBLISH_BRANCH" in text, "a scheduled run checks out the default branch by default"
     assert "submit_indexnow.py" in text, "new URLs should be announced when they go live"
+
+
+def test_workflow_lives_on_the_default_branch():
+    """GitHub registers `schedule:` ONLY from the default branch.
+
+    This is not a style point — it silently produced zero runs. The workflow
+    existed on a feature branch for hours while the repository reported
+    `total_count: 0` for workflows, because `main` had no .github directory at
+    all. A workflow that is not on the default branch never fires, and nothing
+    warns you.
+    """
+    default = subprocess.run(
+        ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    branch = (
+        default.stdout.strip().removeprefix("origin/") if default.returncode == 0 else "main"
+    )
+    listed = subprocess.run(
+        ["git", "ls-tree", "--name-only", branch, ".github/workflows/"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        pytest.skip(f"branch {branch} not available locally")
+    assert "daily-publish.yml" in listed.stdout, (
+        f"daily-publish.yml is not on '{branch}' — the schedule will never fire"
+    )
+
+
+def test_no_stale_branch_pin():
+    """If the workflow pins a ref, it must be the branch that gets deployed."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    pinned = re.search(r"^\s*ref:\s*(\S+)", text, re.MULTILINE)
+    if pinned is None:
+        return  # no pin: checkout uses the default branch, which is the deploy branch
+    assert "PUBLISH_BRANCH" in pinned.group(1) or "main" in pinned.group(1), (
+        f"workflow checks out {pinned.group(1)!r}; confirm that is the deploy branch"
+    )

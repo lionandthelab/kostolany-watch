@@ -22,23 +22,17 @@ concurrency:
   group: daily-publish
   cancel-in-progress: false
 
-# PUBLISH_BRANCH must be the branch the site actually deploys from.
-# A scheduled run checks out the DEFAULT branch unless told otherwise, and at
-# the time of writing `main` is well behind the working branch — building it
-# would ship stale code. Update this (or delete it once the work is merged and
-# main is the deploy branch).
-env:
-  PUBLISH_BRANCH: rnd/phase-head-s0-s2
-
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
       contents: write # commits the generated guide HTML back
     steps:
+      # A scheduled run only ever fires for the workflow file on the DEFAULT
+      # branch, and checks that branch out. `main` is both, so no ref pin is
+      # needed — if the deploy branch ever stops being the default one, this
+      # step needs an explicit `ref:` or it will silently build stale code.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.PUBLISH_BRANCH }}
 
       - uses: actions/setup-node@v4
         with:
