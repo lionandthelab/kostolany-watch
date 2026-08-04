@@ -41,9 +41,31 @@ Put the project id in `.firebaserc` if different.
 ## Deploy
 
 ```powershell
-# From repo root
+# From repo root (Windows)
 .\scripts\deploy-firebase.ps1
 ```
+
+**Not on Windows?** Use the `kostolany-deploy` skill
+(`.claude/skills/kostolany-deploy/SKILL.md`) — same procedure, no PowerShell.
+
+The script ships the **working tree**, not the last commit, and deploys Hosting
+as well as Cloud Run. If the tree carries unrelated in-flight frontend work,
+deploy Cloud Run alone instead of running the whole script.
+
+Steps the script performs, in order:
+
+1. `npm run build` in `web/` — `prebuild` regenerates guide HTML + `sitemap.xml`,
+   `postbuild` writes the per-route shells (`dist/watch.html` and friends).
+   Always `npm run build`, never `vite build` directly, or both hooks are skipped.
+2. `gcloud run deploy kostolany-api`
+3. `firebase deploy --only hosting`
+4. Push Cloud Scheduler setup (only when the VAPID/cron env vars are present)
+5. **IndexNow notification** — `scripts/submit_indexnow.py`, which reads the
+   sitemap just regenerated in step 1 so new guide articles are included
+   automatically. Non-fatal: a failed notification never fails a deploy.
+
+Google does **not** accept IndexNow. Sitemap submission and index requests are
+manual, in Google Search Console.
 
 Or manually:
 
@@ -51,6 +73,7 @@ Or manually:
 cd web; npm ci; npm run build; cd ..
 gcloud run deploy kostolany-api --source . --region asia-northeast3 --allow-unauthenticated --memory 2Gi --cpu 1 --timeout 300 --max-instances 3 --min-instances 0 --set-env-vars DATA_START=2015-01-01
 firebase deploy --only hosting
+.\.venv\Scripts\python.exe scripts\submit_indexnow.py
 ```
 
 ## Local check after API prefix change

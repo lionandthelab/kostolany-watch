@@ -86,6 +86,10 @@ export type Messages = {
   };
   macro: {
     title: string;
+    /** Door → room positioning line under the title */
+    lead: string;
+    toWatch: string;
+    hintNote: string;
     fedwatch: string;
     cut: string;
     hold: string;
@@ -94,6 +98,8 @@ export type Messages = {
     briefingAria: string;
     headlines: string;
     moreNews: string;
+    /** Educational egg-axis hints by macro card id (not a regime call). */
+    hints: Record<string, string>;
   };
   news: {
     title: string;

@@ -62,6 +62,9 @@ export const en: Messages = {
   },
   macro: {
     title: "Macro",
+    lead: "Rates, jobs, dollar, and mood — then read them on the Kostolany egg. Educational context only.",
+    toWatch: "Open regime on the egg",
+    hintNote: "Hints map gauges to egg axes (money / sentiment). They are not a live regime call.",
     fedwatch: "Policy tilt (FedWatch proxy)",
     cut: "Cut",
     hold: "Hold",
@@ -70,6 +73,21 @@ export const en: Messages = {
     briefingAria: "Top news briefing",
     headlines: "Headlines",
     moreNews: "More news",
+    hints: {
+      rates: "Policy rate · money / liquidity backdrop for the cycle.",
+      curve: "Curve shape · credit & growth tone around the egg path.",
+      treasury_10y: "Long yields · discount-rate pressure on risk assets.",
+      cpi: "Inflation · feeds the money/rates axis over time.",
+      breakeven: "Market inflation expectation · forward money pressure.",
+      jobs: "Labor · participation & cycle strength context.",
+      hy_oas: "Credit stress · risk-off often leans B-side caution.",
+      vix: "Equity fear · sentiment axis; spikes lean defensive.",
+      dxy: "Dollar strength · global liquidity / risk appetite tone.",
+      btc: "Crypto risk asset · mirrors risk-on / risk-off swings.",
+      gold: "Haven bid · often rises when fear dominates.",
+      fear_greed: "Equity mood proxy · sentiment input, not a call.",
+      crypto_fear_greed: "Crypto mood · sentiment input for BTC path.",
+    },
   },
   news: {
     title: "News",
@@ -97,12 +115,12 @@ export const en: Messages = {
   },
   landing: {
     headline: "See where the market sits on the egg — in probabilities.",
-    sub: "Kostolany’s six regimes as points on the egg rim, with three AIs each placing their own mark.",
+    sub: "Start from macro gauges (rates, jobs, mood), then read Kostolany’s six regimes on the egg — with three AI marks.",
     ctaWatch: "View regime",
-    ctaMacro: "Macro",
+    ctaMacro: "Macro gauges",
     whatTitle: "What this is",
     whatBody:
-      "Instead of “buy or sell now?” noise, we split volume, participation, liquidity, and sentiment into regime probabilities. Not a top/bottom caller — a lens for reading the cycle.",
+      "Macro context in the door; the egg is the room. We turn volume, participation, liquidity, and sentiment into regime probabilities — not a buy/sell tip, a cycle-reading lens.",
     sixTitle: "Six regimes",
     sixLead: "Upswings climb the right side of the egg; downswings descend the left.",
     analystsTitle: "Three AI analysts",
@@ -136,12 +154,12 @@ export const en: Messages = {
   },
   seo: {
     home: {
-      title: "Kostolany egg · six regimes | Kostolany Watch",
+      title: "Macro gauges → Kostolany regimes | Kostolany Watch",
       description:
-        "Read André Kostolany’s egg-model regimes (A1–B3) as probabilities. Educational tool for US & crypto, macro, and news. Not investment advice.",
-      ogTitle: "See where the market sits on the egg — in probabilities.",
+        "Read rates, jobs, and sentiment — then map them onto André Kostolany’s egg (A1–B3) as educational regime probabilities. US & crypto. Not investment advice.",
+      ogTitle: "Macro context, then the egg — where is the cycle?",
       ogDescription:
-        "Kostolany six-regime probability lens · educational regime reading. Not a trading signal.",
+        "Macro gauges in, Kostolany six-regime lens out. Educational regime reading — not a trading signal.",
     },
     watch: {
       title: "Regime — on the egg",
@@ -149,8 +167,9 @@ export const en: Messages = {
         "See S&P 500 and Bitcoin regime probabilities with three AI marks on the egg. Educational regime reading.",
     },
     macro: {
-      title: "Macro flow",
-      description: "Rates, jobs, sentiment and headline context — for education and research.",
+      title: "Macro gauges → egg regimes",
+      description:
+        "Rates, yields, VIX, dollar, fear & greed — educational gauges that feed Kostolany regime reading. Not investment advice.",
     },
     news: {
       title: "News desk",

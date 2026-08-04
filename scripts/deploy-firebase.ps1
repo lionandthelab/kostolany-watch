@@ -95,6 +95,21 @@ if ($env:NEWSLETTER_CRON_SECRET -and $env:VAPID_PUBLIC_KEY -and $env:VAPID_PRIVA
   & "$PSScriptRoot\setup-push-scheduler.ps1" -ProjectId $ProjectId -Region $Region -Service $Service
 }
 
+# Tell Bing/Yandex what changed. The script reads web/public/sitemap.xml, which
+# the build above just regenerated, so new guide articles are included without
+# anyone remembering to add them. Never fatal — a failed notification must not
+# fail a successful deploy.
+Write-Host "== Notify IndexNow ==" -ForegroundColor Cyan
+$py = if (Test-Path ".venv\Scripts\python.exe") { ".venv\Scripts\python.exe" }
+      elseif (Test-Path ".venv/bin/python") { ".venv/bin/python" }
+      else { "python" }
+try {
+  & $py scripts/submit_indexnow.py
+  if ($LASTEXITCODE -ne 0) { Write-Host "  IndexNow returned $LASTEXITCODE (deploy unaffected)" -ForegroundColor Yellow }
+} catch {
+  Write-Host "  IndexNow skipped: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 Write-Host "Done." -ForegroundColor Green
 Write-Host "Hosting: https://$ProjectId.web.app"
 Write-Host "API health: https://$ProjectId.web.app/api/health"

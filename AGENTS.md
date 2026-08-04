@@ -20,6 +20,9 @@
 - 완료까지 반복 → `/ralph` (verify 루프 포함)
 - 전체 자율 → `/autopilot`
 - 이 레포 작업 기본 → skill `kostolany-implement`, 끝에는 반드시 `kostolany-verify`
+- 배포 → skill `kostolany-deploy` (`.claude/skills/`, OS 무관). Windows는
+  `scripts/deploy-firebase.ps1`도 동일 절차. 저장소 기본 `/deploy` 스킬은
+  Flutter용이라 이 레포엔 부적용
 
 ### Non-negotiables
 
