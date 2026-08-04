@@ -2354,6 +2354,33 @@ button.btn-primary {
   width: 100%;
 }
 
+.macro-lead {
+  margin: 0.45rem 0 0;
+  max-width: 40rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.macro-bridge {
+  margin: 0.55rem 0 0;
+}
+
+.macro-hint-note {
+  margin: -0.85rem 0 1.15rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.macro-card-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--moss-deep);
+  opacity: 0.85;
+}
+
 .macro-rail {
   margin: 0.15rem 0 1.35rem;
   width: 100%;

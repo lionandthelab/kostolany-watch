@@ -164,7 +164,7 @@ export default function App() {
             onOpenArticle={openGuideArticle}
           />
         ) : mode === "macro" ? (
-          <MacroDesk />
+          <MacroDesk onWatch={enterWatch} />
         ) : mode === "news" ? (
           <NewsDesk />
         ) : (

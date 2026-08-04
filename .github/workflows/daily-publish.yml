@@ -1,0 +1,101 @@
+# Publish the day's scheduled guide article.
+#
+# Articles carry a future `date` in web/src/guide/articles.json and are withheld
+# by build-guide.mjs until that date arrives (KST). The gate is evaluated at
+# BUILD time, so a scheduled post only appears once something rebuilds and
+# redeploys on or after its date — that is this workflow's only job.
+#
+# Hosting only. The API is untouched, so this never redeploys Cloud Run.
+name: Daily publish
+
+on:
+  schedule:
+    # 15:05 UTC = 00:05 KST, just after the Seoul day rolls over.
+    - cron: "5 15 * * *"
+  workflow_dispatch:
+    inputs:
+      as_of:
+        description: "Override publish date (YYYY-MM-DD) for a dry run"
+        required: false
+
+concurrency:
+  group: daily-publish
+  cancel-in-progress: false
+
+# PUBLISH_BRANCH must be the branch the site actually deploys from.
+# A scheduled run checks out the DEFAULT branch unless told otherwise, and at
+# the time of writing `main` is well behind the working branch — building it
+# would ship stale code. Update this (or delete it once the work is merged and
+# main is the deploy branch).
+env:
+  PUBLISH_BRANCH: rnd/phase-head-s0-s2
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # commits the generated guide HTML back
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PUBLISH_BRANCH }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build web (guide + sitemap + route shells)
+        working-directory: web
+        env:
+          PUBLISH_AS_OF: ${{ github.event.inputs.as_of }}
+        run: |
+          npm ci
+          npm run build
+
+      # Nothing to do on days without a scheduled post. Comparing the generated
+      # sitemap against the committed one is the cheapest true signal: a new
+      # article always adds a <loc>.
+      - name: Detect whether anything became live
+        id: changed
+        run: |
+          if git diff --quiet -- web/public/sitemap.xml web/public/guide; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No article became live today — skipping deploy."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- web/public/sitemap.xml web/public/guide
+          fi
+
+      - name: Deploy Hosting
+        if: steps.changed.outputs.changed == 'true'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: kostolany-watch
+          channelId: live
+
+      # Bing/Yandex only — Google does not accept IndexNow and stays manual.
+      # Never fail the run on a notification error; the article is already live.
+      - name: Notify IndexNow
+        if: steps.changed.outputs.changed == 'true'
+        continue-on-error: true
+        run: python scripts/submit_indexnow.py
+
+      # public/guide and sitemap.xml are tracked, so the newly generated files
+      # are committed back. Without this the next run would see them as "changed"
+      # again and redeploy the same article every night.
+      - name: Commit generated output
+        if: steps.changed.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/public/guide web/public/sitemap.xml
+          git commit -m "Publish scheduled guide article(s) for $(TZ=Asia/Seoul date +%F)"
+          git push

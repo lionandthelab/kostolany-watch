@@ -15,8 +15,21 @@ export type GuideArticle = {
 
 export const GUIDE_ARTICLES = articlesJson as GuideArticle[];
 
-export function isPublished(article: GuideArticle): boolean {
-  return article.status !== "draft";
+/** Today in Seoul — the site's publishing day boundary. */
+export function kstToday(): string {
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Live = not a draft, and the publish date has arrived.
+ *
+ * Mirrors `isLive` in scripts/build-guide.mjs deliberately. The build script is
+ * the real gate — it decides whether the HTML file and sitemap entry exist at
+ * all. This copy stops a cached bundle from listing a link to a page that has
+ * not been generated yet, which would be a 404 for the reader.
+ */
+export function isPublished(article: GuideArticle, today = kstToday()): boolean {
+  return article.status !== "draft" && String(article.date || "") <= today;
 }
 
 export function getArticle(slug: string): GuideArticle | undefined {
@@ -26,7 +39,7 @@ export function getArticle(slug: string): GuideArticle | undefined {
 }
 
 export function listArticles(): GuideArticle[] {
-  return GUIDE_ARTICLES.filter(isPublished).sort((a, b) => (a.date < b.date ? 1 : -1));
+  return GUIDE_ARTICLES.filter((a) => isPublished(a)).sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
 export function mergeArticles(
@@ -34,7 +47,7 @@ export function mergeArticles(
   remote: GuideArticle[],
 ): GuideArticle[] {
   const map = new Map<string, GuideArticle>();
-  for (const a of local.filter(isPublished)) map.set(a.slug, a);
+  for (const a of local.filter((x) => isPublished(x))) map.set(a.slug, a);
   for (const a of remote) {
     if (!a?.slug) continue;
     map.set(a.slug, { ...a, status: "published" });

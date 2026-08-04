@@ -75,7 +75,15 @@ function cardDigits(id: string): number {
   return 2;
 }
 
-function MacroCardView({ card, lang }: { card: MacroCard; lang: "en" | "ko" }) {
+function MacroCardView({
+  card,
+  lang,
+  hint,
+}: {
+  card: MacroCard;
+  lang: "en" | "ko";
+  hint?: string;
+}) {
   const digits = cardDigits(card.id);
   const title =
     pickLocaleText(lang, lang === "ko" ? card.title_ko : card.title_en, card.title) || card.title;
@@ -106,6 +114,7 @@ function MacroCardView({ card, lang }: { card: MacroCard; lang: "en" | "ko" }) {
         )}
       </div>
       <Sparkline series={card.series} />
+      {hint ? <p className="macro-card-hint">{hint}</p> : null}
     </article>
   );
 }
@@ -114,10 +123,12 @@ function MacroCardRail({
   cards,
   lang,
   label,
+  hints,
 }: {
   cards: MacroCard[];
   lang: "en" | "ko";
   label: string;
+  hints: Record<string, string>;
 }) {
   // A swipeable strip needs no duplicated clone (and therefore no aria-hidden
   // twin) — that array only existed to make the CSS translate(-50%) loop seam.
@@ -126,7 +137,7 @@ function MacroCardRail({
       <div className="macro-rail-viewport" tabIndex={0} role="group" aria-label={label}>
         <div className="macro-rail-track">
           {cards.map((c) => (
-            <MacroCardView key={c.id} card={c} lang={lang} />
+            <MacroCardView key={c.id} card={c} lang={lang} hint={hints[c.id]} />
           ))}
         </div>
       </div>
@@ -134,7 +145,11 @@ function MacroCardRail({
   );
 }
 
-export default function MacroDesk() {
+type Props = {
+  onWatch?: () => void;
+};
+
+export default function MacroDesk({ onWatch }: Props) {
   const t = useT();
   const { locale } = useLocale();
   const lang = locale === "en" ? "en" : "ko";
@@ -185,6 +200,20 @@ export default function MacroDesk() {
             </button>
           </div>
         </div>
+        <p className="macro-lead">{t.macro.lead}</p>
+        {onWatch ? (
+          <p className="macro-bridge">
+            <button type="button" className="btn-ghost btn-sm" onClick={onWatch}>
+              {t.macro.toWatch}
+            </button>
+          </p>
+        ) : (
+          <p className="macro-bridge">
+            <a className="btn-ghost btn-sm" href="/watch">
+              {t.macro.toWatch}
+            </a>
+          </p>
+        )}
       </header>
 
       {error && (
@@ -230,7 +259,15 @@ export default function MacroDesk() {
       )}
 
       {board && board.cards.length > 0 && (
-        <MacroCardRail cards={board.cards} lang={lang} label={t.macro.gaugesAria} />
+        <>
+          <MacroCardRail
+            cards={board.cards}
+            lang={lang}
+            label={t.macro.gaugesAria}
+            hints={t.macro.hints}
+          />
+          <p className="macro-hint-note">{t.macro.hintNote}</p>
+        </>
       )}
 
       {(() => {

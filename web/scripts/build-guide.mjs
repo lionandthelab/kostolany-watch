@@ -1,16 +1,42 @@
 /**
  * Emit crawlable HTML for /guide/* into public/ and refresh sitemap.xml + RSS.
  * Run via: node scripts/build-guide.mjs (also hooked as prebuild).
- * Drafts (status === "draft") are skipped from public outputs.
+ * Drafts and not-yet-due scheduled posts are skipped from public outputs, and
+ * any output they left behind on an earlier build is pruned — otherwise a
+ * scheduled article stays reachable by direct URL after its date is pushed back.
  */
-import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 const allArticles = JSON.parse(readFileSync(join(root, "src/guide/articles.json"), "utf8"));
-const articles = allArticles.filter((a) => a.status !== "draft");
+
+/** Today in Seoul — the site's publishing day boundary. */
+function kstToday() {
+  const now = new Date();
+  return new Date(now.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * An article is live when it is not a draft AND its date has arrived.
+ *
+ * The date gate is what actually withholds a scheduled post: no HTML file, no
+ * sitemap entry, no RSS item, so the URL simply does not exist yet. Hiding a
+ * future article from the list page alone would not work — the sitemap would
+ * still advertise it and the direct URL would still serve it.
+ *
+ * Because this is evaluated at BUILD time, scheduled posts need a rebuild on or
+ * after their date; `.github/workflows/daily-publish.yml` does that nightly.
+ */
+const TODAY = process.env.PUBLISH_AS_OF || kstToday();
+export function isLive(a, today = TODAY) {
+  return a.status !== "draft" && String(a.date || "") <= today;
+}
+
+const articles = allArticles.filter((a) => isLive(a));
+const scheduled = allArticles.filter((a) => a.status !== "draft" && !isLive(a));
 const SITE = "https://kostolany-watch.web.app";
 
 function escapeHtml(s) {
@@ -133,11 +159,32 @@ function writeGuideIndex() {
   if (existsSync(stale)) unlinkSync(stale);
 }
 
+function pruneScheduledOutput() {
+  /**
+   * Delete generated HTML for articles that exist in articles.json but are not
+   * live yet. Without this, a slug generated once stays on disk (and in git —
+   * public/guide is tracked) and keeps serving after its date moves.
+   *
+   * Scoped deliberately to slugs this file owns: directories from other
+   * pipelines (weekly/daily briefs published through the API) are left alone.
+   */
+  const withheld = allArticles.filter((a) => !isLive(a)).map((a) => a.slug);
+  const removed = [];
+  for (const slug of withheld) {
+    const dir = join(root, "public/guide", slug);
+    if (existsSync(dir)) {
+      rmSync(dir, { recursive: true, force: true });
+      removed.push(slug);
+    }
+  }
+  return removed;
+}
+
 function writeSitemap() {
   const core = [
     ["/", "weekly", "1.0"],
     ["/watch", "daily", "0.9"],
-    ["/macro", "daily", "0.8"],
+    ["/macro", "daily", "0.88"],
     ["/news", "hourly", "0.8"],
     ["/about", "monthly", "0.6"],
     ["/guide/", "weekly", "0.85"],
@@ -214,11 +261,15 @@ for (const article of articles) {
   writeArticle(article, "en");
 }
 writeGuideIndex();
+const pruned = pruneScheduledOutput();
 writeSitemap();
 writeRss();
-const drafts = allArticles.length - articles.length;
+const drafts = allArticles.length - articles.length - scheduled.length;
+const next = scheduled.map((a) => a.date).sort()[0];
 console.log(
-  `build-guide: ${articles.length} published` +
-    (drafts ? ` (+${drafts} draft skipped)` : "") +
+  `build-guide: ${articles.length} live as of ${TODAY}` +
+    (scheduled.length ? ` · ${scheduled.length} scheduled (next ${next})` : "") +
+    (drafts ? ` · ${drafts} draft` : "") +
+    (pruned.length ? ` · pruned ${pruned.join(", ")}` : "") +
     " → public/guide + sitemap.xml + feed.xml",
 );
