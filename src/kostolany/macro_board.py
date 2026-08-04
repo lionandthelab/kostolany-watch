@@ -14,6 +14,15 @@ from kostolany.settings import get_settings
 
 log = logging.getLogger(__name__)
 
+FEDWATCH_NOTE_KO = (
+    "단기금리와 기준금리 격차를 고정 공식으로 변환한 교육용 근사치입니다. "
+    "실제 정책 결정 확률로 측정된 값이 아니며, CME FedWatch 공식 확률도 아닙니다."
+)
+FEDWATCH_NOTE_EN = (
+    "Educational proxy: a fixed formula over the short-rate/policy-rate gap. "
+    "Not measured against realised policy decisions, and not official CME FedWatch."
+)
+
 BOARD_TTL_HOURS = 6.0
 _CACHE = "macro_board_v5.json"
 
@@ -135,9 +144,9 @@ def _fedwatch_proxy(fed_funds: float | None, irx: float | None) -> dict[str, Any
             "hold": None,
             "hike": None,
             "source": "proxy",
-            "note": "Educational proxy only — not official CME FedWatch probabilities.",
-            "note_en": "Educational proxy only — not official CME FedWatch probabilities.",
-            "note_ko": "CME FedWatch 공식 확률이 아닙니다. 단기금리·기준금리 괴리 근사치입니다.",
+            "note": FEDWATCH_NOTE_EN,
+            "note_en": FEDWATCH_NOTE_EN,
+            "note_ko": FEDWATCH_NOTE_KO,
         }
     # IRX is discount %; treat as short-rate proxy in same units as FEDFUNDS
     gap = float(irx) - float(fed_funds)  # negative → market prices easier policy
@@ -162,9 +171,9 @@ def _fedwatch_proxy(fed_funds: float | None, irx: float | None) -> dict[str, Any
         "hike": round(hike * 100, 1),
         "gap_pp": round(gap, 3),
         "source": "IRX vs FEDFUNDS proxy",
-        "note": "Educational proxy only — not official CME FedWatch probabilities.",
-        "note_en": "Educational proxy only — not official CME FedWatch probabilities.",
-        "note_ko": "교육용 근사치입니다. CME FedWatch 공식 확률이 아닙니다.",
+        "note": FEDWATCH_NOTE_EN,
+        "note_en": FEDWATCH_NOTE_EN,
+        "note_ko": FEDWATCH_NOTE_KO,
     }
 
 

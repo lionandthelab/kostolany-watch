@@ -27,6 +27,7 @@ the payload so no surface can claim the fitted arms are the accuracy ceiling.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from kostolany.momo import MEASURED_THIRD_GIVEN_SIDE
@@ -151,10 +152,20 @@ CONFIDENCE_VIEW_BY_SYMBOL: dict[str, dict[str, Any]] = {
 }
 
 
+def pct_floor(x: float) -> int:
+    """Display percentages always floor (spec §0.3). Never round.
+
+    §6 #9 names rounding up as a forbidden rendering (81% from 0.8062). This is
+    the server-side twin of the frontend `pctFloor` in eggGeometry.ts — both
+    must agree or the same quantity appears twice with different values.
+    """
+    return math.floor(x * 100)
+
+
 def _note_ko(block: dict[str, Any]) -> str:
     m = block["measured"]
-    exact_lo = round(min(v["exact6"] for v in m.values()) * 100)
-    exact_hi = round(max(v["exact6"] for v in m.values()) * 100)
+    exact_lo = pct_floor(min(v["exact6"] for v in m.values()))
+    exact_hi = pct_floor(max(v["exact6"] for v in m.values()))
     exact_txt = f"{exact_lo}%" if exact_lo == exact_hi else f"{exact_lo}~{exact_hi}%"
     ece_lo = min(v["ece"] for v in m.values())
     ece_hi = max(v["ece"] for v in m.values())
@@ -162,10 +173,10 @@ def _note_ko(block: dict[str, Any]) -> str:
     vote_side = momo.get("vote_side", momo.get("side_median", 0))
     return (
         f"{block['window']} 구간 {block['n_oos_bars']:,}봉 워크포워드 실측: "
-        f"6국면 정확 적중률 약 {exact_txt}(무작위 {EXACT6_CHANCE * 100:.0f}%), "
+        f"6국면 정확 적중률 약 {exact_txt}(무작위로 찍으면 6분의 1), "
         f"보정 오차(ECE) {ece_lo:.2f}~{ece_hi:.2f}. 기본 헤드(추세 규칙)는 "
         "학습된 모델이 아니며, 표시 확률이 실측 적중률과 일치하도록 고정되어 "
-        f"있습니다(상승/하락 적중 {vote_side * 100:.0f}%). "
+        f"있습니다(상승/하락 레그 적중 {pct_floor(vote_side)}%). "
         "AI 3종의 확신도는 순위 참고용이며 적중 확률이 아닙니다."
     )
 

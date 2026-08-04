@@ -32,7 +32,9 @@ export const ko: Messages = {
     analystsModal: "AI 분석가",
     volume: "거래량",
     crowd: "참여자",
-    actionEdu: "권고 행동(교육용)",
+    actionEdu: "이 국면의 고전적 대응(교육용)",
+    contextNote:
+      "국면 판정은 가격만 사용합니다. 아래는 판정에 들어가지 않는 참고 지표입니다.",
     measuredHit: "측정 성적: 정확 적중",
     currentFocus: "현재 포커스",
     levelHigh: "높음",
@@ -49,7 +51,14 @@ export const ko: Messages = {
       position: "위치·추세",
     },
     calibrationNote:
-      "{window} 구간 {n}봉 워크포워드 실측: 6국면 정확 적중률 약 {exact}(무작위 {chance}%), 보정 오차(ECE) {eceLo}~{eceHi}. 기본 헤드(추세 규칙)는 학습된 모델이 아니며, 표시 확률이 실측 적중률과 일치하도록 고정되어 있습니다(상승/하락 적중 {sidePct}%). AI 3종의 확신도는 순위 참고용이며 적중 확률이 아닙니다.",
+      "{window} 구간 {n}봉 워크포워드 실측: 6국면 정확 적중률 약 {exact}(무작위로 찍으면 6분의 1), 보정 오차(ECE) {eceLo}~{eceHi}. 기본 헤드(추세 규칙)는 학습된 모델이 아니며, 표시 확률이 실측 적중률과 일치하도록 고정되어 있습니다(상승/하락 레그 적중 {sidePct}%). AI 3종의 확신도는 순위 참고용이며 적중 확률이 아닙니다.", // spec-ok(§3.4): 확신 vocabulary survives inside the AI reference panel, and this clause exists to disclaim it
+  },
+  frontDoor: {
+    title: "참고 맥락",
+    note: "아래 지표와 헤드라인은 위 국면 판정에 사용되지 않습니다. 시장 배경을 함께 보기 위한 참고 자료입니다.",
+    newsTitle: "오늘의 헤드라인",
+    macroMore: "거시 전체 보기",
+    newsMore: "뉴스 전체 보기",
   },
   macro: {
     title: "거시 흐름",
@@ -205,7 +214,7 @@ export const ko: Messages = {
       short: "규",
       trait: "무학습 기준",
       blurb:
-        "8개 추세 규칙의 다수결 + 전환 시계. 학습된 AI가 아니며, 실측 상승/하락 적중률(~70%)이 세 AI보다 높아 기본 헤드가 되었다. 표시 확률은 실측 적중률에 고정.",
+        "8개 추세 규칙의 다수결 + 전환 시계. 학습된 AI가 아니며, 실측 상승/하락 레그 적중률이 세 AI보다 높아 기본 헤드가 되었다. 표시 확률은 실측 적중률에 고정.",
     },
     hmm: {
       label: "리듬이",

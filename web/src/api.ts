@@ -1,4 +1,4 @@
-export type EvidenceItem = {
+export type ContextGaugeItem = {
   key: string;
   label: string;
   value: number;
@@ -26,7 +26,7 @@ export type Snapshot = {
   }>;
   disclaimer: string;
   transition_score?: number | null;
-  evidence?: EvidenceItem[] | null;
+  context_gauges?: ContextGaugeItem[] | null;
   vote?: VoteBlock | null;
 };
 

@@ -20,7 +20,7 @@ REFRESH_COOLDOWN_HOURS = 1.0
 #       corrected weak-label drawdown terms, `calibration` block in the payload.
 # v3: conviction system — vote block on momo snapshots + confidence_view in
 # the calibration payload. Old blobs lack both and must not be served.
-WATCH_PAYLOAD_VERSION = "v3"
+WATCH_PAYLOAD_VERSION = "v4"
 
 
 def _path(symbol: str, models: str, limit: int, stride: int) -> Path:

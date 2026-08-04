@@ -39,7 +39,7 @@ class EngineSnapshot:
     next_likely: list[dict[str, Any]]
     disclaimer: str
     transition_score: float | None = None
-    evidence: list[dict[str, Any]] | None = None
+    context_gauges: list[dict[str, Any]] | None = None
     # momo head only: live 8-rule vote block (deterministic counts; the UI's
     # conviction tier keys off this). None for the AI heads and on the
     # fail-closed path (vote side disagreeing with the served regime side).
@@ -129,7 +129,7 @@ class KostolanyEngine:
         probs = {Regime(i).name: float(proba_row[f"p{i}"]) for i in range(6)}
         conf = float(max(probs.values()))
         gauges = gauge_scores(self._last_features).loc[ts].to_dict()
-        evidence = _build_evidence(self._last_features.loc[ts], gauges)
+        context_gauges = _build_context_gauges(self._last_features.loc[ts], gauges)
         ex, ey = egg_coordinate(proba_row)
         next_likely = self._transition_hints(regime, pred, at=ts)
         tscore = None
@@ -152,7 +152,7 @@ class KostolanyEngine:
             next_likely=next_likely,
             disclaimer=DISCLAIMER_KO,
             transition_score=tscore,
-            evidence=evidence,
+            context_gauges=context_gauges,
             vote=self._vote_block(ts, regime_id),
         )
 
@@ -380,8 +380,15 @@ def _level(v: float) -> str:
     return "높음"
 
 
-def _build_evidence(feat_row: pd.Series, gauges: dict) -> list[dict[str, Any]]:
-    """Human-readable evidence rows for the watch UI."""
+def _build_context_gauges(feat_row: pd.Series, gauges: dict) -> list[dict[str, Any]]:
+    """Human-readable context gauges for the watch UI.
+
+    NOT evidence for the regime call. The shipped head (`momo`) takes prices and
+    nothing else (momo.py `MomoFloorHead.fit`), while these rows are derived from
+    the FRED-enriched feature matrix. Calling them "evidence" asserted a causal
+    story the measurement does not support — the UI states the disjunction
+    explicitly above the strip (`t.watch.contextNote`).
+    """
     g = {k: float(gauges.get(k, 0.5)) for k in ("volume", "participation", "money", "sentiment")}
 
     def safe(key: str, default: float = 0.0) -> float:

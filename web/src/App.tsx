@@ -5,6 +5,7 @@ import NewsDesk from "./NewsDesk";
 import WatchApp from "./WatchApp";
 import GuideDesk from "./GuideDesk";
 import DeskShell, { type DeskTab } from "./DeskShell";
+import ErrorBoundary from "./ErrorBoundary";
 import { trackEvent, trackPageView } from "./analytics";
 import { getArticle } from "./guide/catalog";
 import { useLocale, useT } from "./i18n";
@@ -120,21 +121,23 @@ export default function App() {
 
   if (mode === "about" || mode === "home") {
     return (
-      <Landing
-        onEnter={() => {
-          trackEvent("cta_watch", { from: mode });
-          enterWatch();
-        }}
-        onMacro={() => {
-          trackEvent("cta_macro", { from: mode });
-          enterMacro();
-        }}
-        onGuide={() => {
-          trackEvent("cta_guide", { from: mode });
-          enterGuide();
-        }}
-        onHome={mode === "about" ? enterHome : undefined}
-      />
+      <ErrorBoundary section="landing">
+        <Landing
+          onEnter={() => {
+            trackEvent("cta_watch", { from: mode });
+            enterWatch();
+          }}
+          onMacro={() => {
+            trackEvent("cta_macro", { from: mode });
+            enterMacro();
+          }}
+          onGuide={() => {
+            trackEvent("cta_guide", { from: mode });
+            enterGuide();
+          }}
+          onHome={mode === "about" ? enterHome : undefined}
+        />
+      </ErrorBoundary>
     );
   }
 
@@ -150,20 +153,24 @@ export default function App() {
       onGuide={enterGuide}
       onAbout={enterAbout}
     >
-      {mode === "guide" ? (
-        <GuideDesk
-          slug={guideSlug}
-          onWatch={enterWatch}
-          onGuideHome={enterGuide}
-          onOpenArticle={openGuideArticle}
-        />
-      ) : mode === "macro" ? (
-        <MacroDesk />
-      ) : mode === "news" ? (
-        <NewsDesk />
-      ) : (
-        <WatchApp />
-      )}
+      {/* Per-desk, not one root catch: a bad macro payload must not be able to
+          remove the regime call, which is the product. */}
+      <ErrorBoundary section={deskActive} key={deskActive}>
+        {mode === "guide" ? (
+          <GuideDesk
+            slug={guideSlug}
+            onWatch={enterWatch}
+            onGuideHome={enterGuide}
+            onOpenArticle={openGuideArticle}
+          />
+        ) : mode === "macro" ? (
+          <MacroDesk />
+        ) : mode === "news" ? (
+          <NewsDesk />
+        ) : (
+          <WatchApp />
+        )}
+      </ErrorBoundary>
     </DeskShell>
   );
 }

@@ -75,16 +75,7 @@ function cardDigits(id: string): number {
   return 2;
 }
 
-function MacroCardView({
-  card,
-  lang,
-  inert = false,
-}: {
-  card: MacroCard;
-  lang: "en" | "ko";
-  /** Duplicate marquee clone — hide from a11y tree */
-  inert?: boolean;
-}) {
+function MacroCardView({ card, lang }: { card: MacroCard; lang: "en" | "ko" }) {
   const digits = cardDigits(card.id);
   const title =
     pickLocaleText(lang, lang === "ko" ? card.title_ko : card.title_en, card.title) || card.title;
@@ -96,7 +87,7 @@ function MacroCardView({
   );
   const deltaDigits = deltaLabel?.includes("%") ? 1 : deltaLabel ? 0 : 2;
   return (
-    <article className="macro-card" aria-hidden={inert || undefined}>
+    <article className="macro-card">
       <header>
         <h3>{title}</h3>
         {blurb ? <p className="macro-card-blurb">{blurb}</p> : null}
@@ -128,23 +119,14 @@ function MacroCardRail({
   lang: "en" | "ko";
   label: string;
 }) {
-  // Duplicate once for a seamless CSS loop (translate -50%).
-  const loop = useMemo(() => [...cards, ...cards], [cards]);
-  const durationSec = Math.max(28, cards.length * 5.5);
+  // A swipeable strip needs no duplicated clone (and therefore no aria-hidden
+  // twin) — that array only existed to make the CSS translate(-50%) loop seam.
   return (
     <section className="macro-rail fade-up" aria-label={label}>
-      <div className="macro-rail-viewport">
-        <div
-          className="macro-rail-track"
-          style={{ ["--macro-rail-duration" as string]: `${durationSec}s` }}
-        >
-          {loop.map((c, i) => (
-            <MacroCardView
-              key={`${c.id}-${i}`}
-              card={c}
-              lang={lang}
-              inert={i >= cards.length}
-            />
+      <div className="macro-rail-viewport" tabIndex={0} role="group" aria-label={label}>
+        <div className="macro-rail-track">
+          {cards.map((c) => (
+            <MacroCardView key={c.id} card={c} lang={lang} />
           ))}
         </div>
       </div>
@@ -232,14 +214,18 @@ export default function MacroDesk() {
             ).map(([lab, pct, color]) => (
               <div key={lab} className="fedwatch-bar">
                 <span>{lab}</span>
-                <div className="evidence-meter">
+                <div className="gauge-meter">
                   <i style={{ width: `${Math.min(100, Math.max(0, pct ?? 0))}%`, background: color }} />
                 </div>
                 <em>{pct == null ? "—" : `${pct}%`}</em>
               </div>
             ))}
           </div>
-          <p className="fg-history-note">{fw.note}</p>
+          {/* The only hedge on a fabricated probability must not be in the wrong
+              language for the primary audience. */}
+          <p className="fg-history-note">
+            {pickLocaleText(lang, lang === "ko" ? fw.note_ko : fw.note_en, fw.note)}
+          </p>
         </section>
       )}
 

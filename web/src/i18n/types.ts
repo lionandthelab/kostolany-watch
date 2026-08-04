@@ -58,6 +58,7 @@ export type Messages = {
     volume: string;
     crowd: string;
     actionEdu: string;
+    contextNote: string;
     measuredHit: string;
     currentFocus: string;
     levelHigh: string;
@@ -75,6 +76,13 @@ export type Messages = {
     };
     /** Calibration footnote; slots: window, n, exact, chance, eceLo, eceHi, sidePct */
     calibrationNote: string;
+  };
+  frontDoor: {
+    title: string;
+    note: string;
+    newsTitle: string;
+    macroMore: string;
+    newsMore: string;
   };
   macro: {
     title: string;

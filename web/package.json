@@ -10,7 +10,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "build:guide": "node scripts/build-guide.mjs",
-    "weekly:new": "node scripts/new-weekly-brief.mjs"
+    "weekly:new": "node scripts/new-weekly-brief.mjs",
+    "postbuild": "node scripts/prerender-routes.mjs"
   },
   "dependencies": {
     "react": "^19.0.0",

@@ -18,6 +18,8 @@ import {
   type WatchBundle,
 } from "./api";
 import { useLocale, useT } from "./i18n";
+import ErrorBoundary from "./ErrorBoundary";
+import FrontDoorContext from "./FrontDoorContext";
 import { trackEvent } from "./analytics";
 
 /** Regime markets: US equities + crypto (no Korea). */
@@ -83,9 +85,12 @@ function fill(tpl: string, slots: Record<string, string>): string {
 function formatCalibrationNote(cal: RegimeCalibration, tpl: string): string {
   const vals = Object.values(cal.measured);
   if (!vals.length) return cal.note_ko;
-  const exactLo = Math.round(Math.min(...vals.map((v) => v.exact6)) * 100);
-  const exactHi = Math.round(Math.max(...vals.map((v) => v.exact6)) * 100);
-  const exact = exactLo === exactHi ? `${exactLo}%` : `${exactLo}~${exactHi}%`;
+  // Every percentage floors (spec §0.3). Rounding up is banned outright — §6 #9
+  // names 81%(0.8062) as the failure. pctFloor is the single formatter.
+  const exactLo = pctFloor(Math.min(...vals.map((v) => v.exact6)));
+  const exactHi = pctFloor(Math.max(...vals.map((v) => v.exact6)));
+  const exact = exactLo === exactHi ? exactLo : `${exactLo.replace("%", "")}~${exactHi}`;
+  // ECE is an error metric, not a claim percentage — decimals stay as-is.
   const eceLo = Math.min(...vals.map((v) => v.ece)).toFixed(2);
   const eceHi = Math.max(...vals.map((v) => v.ece)).toFixed(2);
   const sideHit = cal.momo_floor?.vote_side ?? cal.momo_floor?.side_median ?? 0;
@@ -93,10 +98,9 @@ function formatCalibrationNote(cal: RegimeCalibration, tpl: string): string {
     window: cal.window,
     n: cal.n_oos_bars.toLocaleString(),
     exact,
-    chance: `${Math.round(cal.exact6_chance * 100)}`,
     eceLo,
     eceHi,
-    sidePct: `${Math.round(sideHit * 100)}`,
+    sidePct: pctFloor(sideHit).replace("%", ""),
   });
 }
 
@@ -320,13 +324,13 @@ export default function WatchApp() {
     return top ? { regime: top[0] as RegimeCode, n: top[1], total: votes.length } : null;
   }, [modelMarks]);
 
-  const evidence = useMemo(() => {
+  const contextGauges = useMemo(() => {
     const level = (v: number) =>
       v < 0.35 ? t.watch.levelLow : v < 0.65 ? t.watch.levelMid : t.watch.levelHigh;
     const gaugeLabel = (key: string, fallback: string) =>
       key in t.watch.gauges ? t.watch.gauges[key as keyof typeof t.watch.gauges] : fallback;
-    if (focusSnap?.evidence?.length) {
-      return focusSnap.evidence.map((e) => ({
+    if (focusSnap?.context_gauges?.length) {
+      return focusSnap.context_gauges.map((e) => ({
         ...e,
         label: gaugeLabel(e.key, e.label),
         level: level(e.value),
@@ -544,18 +548,24 @@ export default function WatchApp() {
                 </div>
               )}
 
-              {evidence.length > 0 && (
-                <ul className="gauge-strip">
-                  {evidence.map((e) => (
-                    <li key={e.key} title={e.detail || undefined}>
-                      <span className="gauge-label">{e.label}</span>
-                      <div className="evidence-meter">
-                        <i style={{ width: `${Math.min(100, Math.max(0, e.value * 100))}%` }} />
-                      </div>
-                      <em>{e.level}</em>
-                    </li>
-                  ))}
-                </ul>
+              {contextGauges.length > 0 && (
+                <>
+                  {/* The shipped head reads prices only. Saying so out loud is the
+                      whole guardrail — these meters come from the FRED feature
+                      matrix and are not inputs to the call above. */}
+                  <p className="context-note">{t.watch.contextNote}</p>
+                  <ul className="gauge-strip">
+                    {contextGauges.map((e) => (
+                      <li key={e.key} title={e.detail || undefined}>
+                        <span className="gauge-label">{e.label}</span>
+                        <div className="gauge-meter">
+                          <i style={{ width: `${Math.min(100, Math.max(0, e.value * 100))}%` }} />
+                        </div>
+                        <em>{e.level}</em>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
 
               {!(focus === "momo" && vote) && (
@@ -651,6 +661,12 @@ export default function WatchApp() {
         </div>
       </section>
 
+      {/* Below the call, never above it — context placed first reads as cause.
+          Own boundary so a bad macro/news payload cannot take the egg with it. */}
+      <ErrorBoundary section="front-context" fallback={null}>
+        <FrontDoorContext />
+      </ErrorBoundary>
+
       <ExplainModal
         title={t.watch.regimeModal}
         open={modal === "regime"}
@@ -684,7 +700,7 @@ export default function WatchApp() {
                 <div className="guide-main">
                   <div className="guide-title">
                     {g.name}
-                    <span className="guide-pct">{(p * 100).toFixed(0)}%</span>
+                    <span className="guide-pct">{pctFloor(p)}</span>
                   </div>
                   <p>{g.trait}</p>
                 </div>
@@ -695,11 +711,11 @@ export default function WatchApp() {
         {calibration && (
           <p className="disclaimer">
             {t.watch.measuredHit}{" "}
-            {(
-              (calibration.measured[focus]?.exact6 ??
-                calibration.constant_prior_baseline.exact6) * 100
-            ).toFixed(0)}
-            %. {formatCalibrationNote(calibration, t.watch.calibrationNote)}
+            {pctFloor(
+              calibration.measured[focus]?.exact6 ??
+                calibration.constant_prior_baseline.exact6,
+            )}
+            . {formatCalibrationNote(calibration, t.watch.calibrationNote)}
           </p>
         )}
       </ExplainModal>

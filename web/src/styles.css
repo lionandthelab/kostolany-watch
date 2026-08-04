@@ -80,6 +80,15 @@ select {
     min-height: auto;
     padding-top: 1rem;
   }
+
+  /* The egg is rendered after hero-copy in the DOM, so a single-column stack
+     put ~590px of text above the product's most distinctive asset — the chart
+     never appeared in the first viewport on a phone. Landing already solved
+     this for its own hero (.landing-hero-visual); the product screen did not
+     inherit the fix. */
+  .hero-watch .egg-stage {
+    order: -1;
+  }
 }
 
 .hero-copy {
@@ -547,7 +556,7 @@ select {
   font-size: 1.05rem;
 }
 
-.evidence-meter {
+.gauge-meter {
   margin-top: 0.35rem;
   height: 4px;
   border-radius: 999px;
@@ -555,7 +564,7 @@ select {
   overflow: hidden;
 }
 
-.evidence-meter > i {
+.gauge-meter > i {
   display: block;
   height: 100%;
   background: var(--moss);
@@ -1156,12 +1165,31 @@ button.btn-primary {
   background: transparent;
 }
 
+/* This is the only path to the evidence behind the product's core claim, and it
+   was the smallest tap target in the app (~20px, no padding). Sized as a real
+   control: min 44px per platform guidance, and comfortably past the WCAG 2.5.8
+   24px floor. `scroll-margin-top` keeps the sticky chrome from swallowing the
+   heading when the disclosure expands. */
 .watch-details > summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.9rem;
   list-style: none;
-  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  padding: 0.55rem 0.75rem;
+  margin-left: -0.75rem;
+  border-radius: 8px;
+  scroll-margin-top: 5rem;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.watch-details > summary:hover,
+.watch-details > summary:focus-visible {
+  color: var(--moss-deep);
+  background: rgba(47, 93, 80, 0.06);
 }
 
 .watch-details > summary::-webkit-details-marker {
@@ -2283,7 +2311,7 @@ button.btn-primary {
   hyphens: auto;
 }
 
-.gauge-strip .evidence-meter {
+.gauge-strip .gauge-meter {
   margin-top: 0;
   min-width: 0;
   width: 100%;
@@ -2313,7 +2341,7 @@ button.btn-primary {
     grid-area: level;
   }
 
-  .gauge-strip .evidence-meter {
+  .gauge-strip .gauge-meter {
     grid-area: meter;
   }
 }
@@ -2331,48 +2359,32 @@ button.btn-primary {
   width: 100%;
 }
 
+/* Swipe strip, not a marquee. The auto-scroll had no reachable pause on touch:
+   nothing inside .macro-card is focusable, so :focus-within can never fire and
+   touch has no :hover — a WCAG 2.2.2 (Pause, Stop, Hide) failure on the exact
+   device class the logs show. Scroll-snap gives the same "there is more this
+   way" affordance while leaving the reader in control of the pace. */
 .macro-rail-viewport {
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   width: 100%;
+  padding-bottom: 0.35rem;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
 }
 
 .macro-rail-track {
-  --macro-rail-duration: 48s;
   display: flex;
   flex-wrap: nowrap;
   gap: 0.75rem;
   width: max-content;
-  animation: macro-rail-slide var(--macro-rail-duration) linear infinite;
-  will-change: transform;
 }
 
-.macro-rail:hover .macro-rail-track,
-.macro-rail:focus-within .macro-rail-track {
-  animation-play-state: paused;
-}
-
-@keyframes macro-rail-slide {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .macro-rail-viewport {
-    overflow-x: auto;
-    mask-image: none;
-    -webkit-mask-image: none;
-    padding-bottom: 0.25rem;
-  }
-
-  .macro-rail-track {
-    animation: none;
-  }
+.macro-rail-viewport .macro-card {
+  scroll-snap-align: start;
 }
 
 .macro-card {
@@ -2595,5 +2607,94 @@ button.btn-primary {
   }
   .replay-controls input[type="range"] {
     grid-column: 1 / -1;
+  }
+}
+
+/* Stated disjunction between the price-only regime call and the FRED-derived
+   gauges beneath it. Never collapsible: an expander would make the honest
+   framing opt-in. */
+.context-note {
+  margin: 0.9rem 0 0.35rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+/* ---- Front-door reference context (below the regime call, never above) ---- */
+
+.front-context {
+  margin: 1.75rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.front-context-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* The disjunction is stated, not implied by layout alone. Not collapsible. */
+.front-context-note {
+  margin: 0.3rem 0 1rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--muted);
+  max-width: 46rem;
+}
+
+.front-macro-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.6rem;
+}
+
+.front-macro-grid li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.front-macro-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.front-macro-grid strong {
+  font-size: 1.05rem;
+  color: var(--moss-deep);
+}
+
+.front-news {
+  margin-top: 1.1rem;
+}
+
+.front-news-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.front-context-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.1rem;
+}
+
+@media (max-width: 420px) {
+  .front-macro-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }

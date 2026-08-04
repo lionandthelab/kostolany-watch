@@ -32,7 +32,9 @@ export const en: Messages = {
     analystsModal: "AI analysts",
     volume: "Volume",
     crowd: "Participation",
-    actionEdu: "Suggested stance (educational)",
+    actionEdu: "Classic stance for this phase (educational)",
+    contextNote:
+      "The regime call uses price only. The gauges below are reference context, not inputs to it.",
     measuredHit: "Measured hit rate",
     currentFocus: "Current focus",
     levelHigh: "High",
@@ -49,7 +51,14 @@ export const en: Messages = {
       position: "Position / trend",
     },
     calibrationNote:
-      "Walk-forward measure on {window} ({n} bars): exact 6-regime hit rate about {exact} (chance {chance}%), calibration error (ECE) {eceLo}–{eceHi}. The trend-rule head is not a trained model; displayed probabilities are pinned to measured hit rates (up/down hit {sidePct}%). The three AI conviction scores are rank references, not hit probabilities.",
+      "Walk-forward measure on {window} ({n} bars): exact 6-regime hit rate about {exact} (guessing at random is 1 in 6), calibration error (ECE) {eceLo}–{eceHi}. The trend-rule head is not a trained model; displayed probabilities are pinned to measured hit rates (up/down leg hit {sidePct}%). The three AI conviction scores are rank references, not hit probabilities.",
+  },
+  frontDoor: {
+    title: "Reference context",
+    note: "The indicators and headlines below are not inputs to the regime call above. They are background, shown alongside it.",
+    newsTitle: "Today’s headlines",
+    macroMore: "Full macro desk",
+    newsMore: "Full news desk",
   },
   macro: {
     title: "Macro",
@@ -206,7 +215,7 @@ export const en: Messages = {
       short: "TR",
       trait: "No-learning baseline",
       blurb:
-        "Majority vote of 8 trend rules plus a turn clock. Not a fitted AI — it measured higher up/down accuracy (~70%) than all three AI heads, so it is the default. Displayed probability is pinned to measured accuracy.",
+        "Majority vote of 8 trend rules plus a turn clock. Not a fitted AI — it measured a higher up/down leg hit rate than all three AI heads, so it is the default. Displayed probability is pinned to measured accuracy.",
     },
     hmm: {
       label: "Rhythm",

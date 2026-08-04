@@ -79,7 +79,7 @@ class SnapshotResponse(BaseModel):
     next_likely: list[dict[str, Any]]
     disclaimer: str = DISCLAIMER_KO
     transition_score: float | None = None
-    evidence: list[dict[str, Any]] | None = None
+    context_gauges: list[dict[str, Any]] | None = None
     # momo head only: live 8-rule vote block (see engine._vote_block)
     vote: dict[str, Any] | None = None
 
