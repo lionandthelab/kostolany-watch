@@ -40,8 +40,28 @@ function upsertLink(rel: string, href: string, extra?: Record<string, string>) {
   el.href = href;
 }
 
-export function applySeo(copy: SeoCopy, path: string, locale: string) {
+export type SeoOptions = {
+  /**
+   * Mark the URL as not-for-indexing. Used for a slug that resolves to no
+   * article — a scheduled post before its date, or a typo. Those serve the SPA
+   * shell with 200 (the catch-all rewrite in firebase.json means Hosting cannot
+   * 404 them), so without this they read as duplicates of /guide/.
+   */
+  noindex?: boolean;
+};
+
+export function applySeo(
+  copy: SeoCopy,
+  path: string,
+  locale: string,
+  options: SeoOptions = {},
+) {
   const url = `${SITE_URL}${path === "/" ? "/" : path}`;
+  upsertMeta(
+    "name",
+    "robots",
+    options.noindex ? "noindex,follow" : "index,follow,max-image-preview:large",
+  );
   const title = copy.title.includes(SITE_NAME) ? copy.title : `${copy.title} · ${SITE_NAME}`;
   const ogTitle = copy.ogTitle ?? title;
   const ogDescription = copy.ogDescription ?? copy.description;

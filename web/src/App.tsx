@@ -110,7 +110,9 @@ export default function App() {
       }
     }
     if (mode === "guide") {
-      applySeo(t.seo.guide, "/guide/", locale);
+      // A slug that resolved to nothing is a soft 404 — the canonical already
+      // points at /guide/, and noindex keeps it out of the index entirely.
+      applySeo(t.seo.guide, "/guide/", locale, { noindex: Boolean(guideSlug) });
       trackPageView("/guide/", t.seo.guide.title);
       return;
     }
