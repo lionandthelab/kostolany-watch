@@ -141,6 +141,15 @@ def _guarded_lines(path):
             yield n, line
 
 
+#: User-facing copy also lives outside .ts/.tsx — the prerendered route shells
+#: are the only thing a non-rendering crawler reads, and guide articles are
+#: published as standalone HTML pages. Both are copy and both are guarded.
+EXTRA_COPY_FILES = (
+    ROOT / "web" / "scripts" / "prerender-routes.mjs",
+    ROOT / "web" / "src" / "guide" / "articles.json",
+)
+
+
 def test_forbidden_copy_repo_wide():
     """No forbidden sentence pattern anywhere a user can read it (§6).
 
@@ -149,7 +158,11 @@ def test_forbidden_copy_repo_wide():
     `watch:` and a hardcoded `%` shipped in `models:` while it passed green.
     """
     offenders: list[str] = []
-    targets = sorted(WEB_SRC.rglob("*.ts")) + sorted(WEB_SRC.rglob("*.tsx"))
+    targets = (
+        sorted(WEB_SRC.rglob("*.ts"))
+        + sorted(WEB_SRC.rglob("*.tsx"))
+        + [p for p in EXTRA_COPY_FILES if p.exists()]
+    )
     for path in targets:
         for n, line in _guarded_lines(path):
             for pat in FORBIDDEN_PATTERNS:

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI는 주가를 예측할 수 있을까 — 직접 재보고 내린 결론 · Kostolany Watch</title>
+  <meta name="description" content="학습 모델과 단순 규칙을 같은 조건에서 비교하고 3개월 방향 예측력을 실제로 측정한 기록. 결과가 좋지 않았고, 그래서 주장 자체를 바꿨습니다." />
+  <meta name="robots" content="index,follow" />
+  <link rel="canonical" href="https://kostolany-watch.web.app/guide/can-ai-predict-stock-prices/" />
+  <link rel="alternate" type="application/rss+xml" title="Kostolany Watch Guide" href="https://kostolany-watch.web.app/guide/feed.xml" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Kostolany Watch" />
+  <meta property="og:locale" content="ko_KR" />
+  <meta property="og:url" content="https://kostolany-watch.web.app/guide/can-ai-predict-stock-prices/" />
+  <meta property="og:title" content="AI는 주가를 예측할 수 있을까 — 직접 재보고 내린 결론" />
+  <meta property="og:description" content="학습 모델과 단순 규칙을 같은 조건에서 비교하고 3개월 방향 예측력을 실제로 측정한 기록. 결과가 좋지 않았고, 그래서 주장 자체를 바꿨습니다." />
+  <meta property="og:image" content="https://kostolany-watch.web.app/og-image.jpg" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root { --ink:#1a1f1c; --muted:#5c6b63; --moss:#2f5d50; --line:#d5ddd6; }
+    body { margin:0; font-family:"IBM Plex Sans",system-ui,sans-serif; color:var(--ink); background:linear-gradient(165deg,#f7f3ea,#e7efe4 55%,#dfe8df); line-height:1.65; }
+    .wrap { width:min(42rem, calc(100% - 2rem)); margin:0 auto; padding:2rem 0 4rem; }
+    a { color:var(--moss); }
+    h1 { font-family:Fraunces,Georgia,serif; font-size:clamp(1.6rem,4vw,2.2rem); color:var(--moss); line-height:1.25; margin:0; }
+    h2 { font-family:Fraunces,Georgia,serif; font-size:1.25rem; margin-top:1.75rem; }
+    .meta { color:var(--muted); font-size:0.9rem; margin:0.5rem 0 1.5rem; }
+    .nav { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; font-size:0.92rem; }
+    .disclaimer { color:var(--muted); font-size:0.88rem; border-top:1px solid var(--line); padding-top:1rem; margin-top:2rem; }
+    article { background:rgba(255,255,255,0.45); border:1px solid var(--line); border-radius:14px; padding:1.25rem 1.35rem 1.5rem; }
+    .cta { display:inline-block; margin-top:1rem; padding:0.55rem 1rem; border-radius:10px; background:var(--moss); color:#fff !important; text-decoration:none; font-weight:600; }
+    ul { padding-left: 1.2rem; }
+    .push-cta { margin:1.5rem 0; padding:1rem 1.1rem; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,0.35); }
+    .push-cta h2 { margin:0; font-size:1.15rem; }
+    .push-cta .lead { margin:0.35rem 0 0.75rem; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="nav">
+      <a href="/">Kostolany Watch</a>
+      <a href="/guide/">Guide</a>
+      <a href="/watch">Regime</a>
+      <a href="/macro">Macro</a>
+      <a href="/news">News</a>
+    </nav>
+    <article>
+      <h1>AI는 주가를 예측할 수 있을까 — 직접 재보고 내린 결론</h1>
+      <p class="meta">업데이트 2026-08-04</p>
+      <p>주가 예측을 내세우는 서비스는 많습니다. 이 글은 그 반대 방향의 기록입니다 — 직접 재봤더니 <strong>예측이 되지 않았고, 그래서 예측한다는 주장을 뺐다</strong>는 이야기입니다.</p><h2>무엇을 어떻게 쟀나</h2><p>모델 평가에서 가장 흔한 함정은 <strong>미래 정보가 학습에 새어 들어가는 것</strong>입니다. 그래서 이 저장소는 학습·검증 구간 사이를 잘라내고 완충 구간을 두는 방식, 신호가 확정된 다음 봉에서 집행하는 실행 지연, 그리고 시차 위반을 자동으로 잡아내는 누수 검사기를 갖춰 두고 평가합니다. 채점은 표본외 구간에서만 합니다.</p><h2>결과 1 — 학습 모델이 단순 규칙에 졌다</h2><p>상승 레그와 하락 레그를 가르는 과제에서, 학습 파라미터가 <strong>0개</strong>인 이동평균 규칙이 학습된 헤드들을 앞섰습니다. 흔한 결론은 “모델이 약하다”이지만 실제 원인은 <strong>비교군을 두지 않았던 것</strong>이었습니다. 아무도 그 자명한 기준선을 돌려 보지 않았을 뿐입니다.</p><h2>결과 2 — 3개월 방향 예측력은 0이었다</h2><p>63거래일(약 3개월) 뒤 방향을 맞히는 능력을 재봤더니, 그냥 “늘 올라간다”고 답하는 기준선을 넘지 못했습니다. 그래서 3개월 경로를 화살표 대신 <strong>평평한 선과 범위</strong>로 그리고, 방향 예보로 읽힐 문장을 화면에서 금지했습니다.</p><h2>결과 3 — 어떤 것은 구조적으로 불가능하다</h2><p>여섯 칸 중 정확한 칸을 맞히는 데는 산술적인 상한이 있습니다. 칸의 경계는 <strong>다음 전환점이 와야</strong> 사후에 확정되기 때문에, 과거만 볼 수 있는 모델에게 레그 안의 위치는 거의 우연에 가깝습니다. 모델을 더 키워서 풀 문제가 아니라 정의상의 한계입니다.</p><h2>그래서 무엇이 남았나</h2><p>남은 것은 <strong>예측이 아니라 상태 서술</strong>입니다. 지금 시장이 상승 레그인지 하락 레그인지, 그 판정이 과거에 얼마나 맞았는지를 실측 빈도로 보여 줍니다. 화면의 모든 숫자는 워크포워드 표본외 채점 결과이고, 측정하지 않은 시장에서는 아무 수치도 표시하지 않습니다.</p><p>작은 주장이지만 검증 가능한 주장입니다. 부풀린 예측보다 그쪽이 낫다고 판단했습니다.</p><p><a href="/watch">국면 화면 열기</a> · <a href="/guide/moving-average-trend-rules">규칙 8개 보기</a></p><p class="disclaimer">본 정보는 교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.</p>
+      <p><a class="cta" href="/watch">국면 보기</a></p>
+      
+    <section class="push-cta">
+      <h2>일일 국면 알림</h2>
+      <p class="lead">브라우저 푸시로 매일 국면 지표를 받을 수 있습니다. 앱 가이드에서 켜 주세요.</p>
+      <p><a class="cta" href="/guide/">알림 설정 열기</a></p>
+    </section>
+    </article>
+  </div>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-XC1KSGMXTX"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-XC1KSGMXTX', { page_path: location.pathname });
+  </script>
+</body>
+</html>

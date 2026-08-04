@@ -102,6 +102,49 @@ def test_prerender_emits_flat_html_not_directories():
     )
 
 
+def test_no_measured_value_is_baked_into_the_prerender():
+    """Static HTML must never carry a measured number.
+
+    Every hit rate on screen has exactly one source: the calibration artifact →
+    calibration.py → payload → pctFloor (spec §0.1). A value copied into a build
+    script becomes a second source that cannot be re-measured and will silently
+    drift from the artifact. Evergreen prose only.
+    """
+    from kostolany.calibration import CONFIDENCE_VIEW_BY_SYMBOL, MEASURED_BY_SYMBOL
+
+    script = PRERENDER.read_text(encoding="utf-8")
+    assert "%" not in script.split("const ROUTES")[1].split("const SITE_NAME")[0], (
+        "route copy contains a percent sign — measured numbers belong in the payload"
+    )
+
+    measured: set[int] = set()
+    for view in CONFIDENCE_VIEW_BY_SYMBOL.values():
+        for cell in view["menu"].values():
+            if isinstance(cell, (int, float)):
+                measured.add(int(cell * 100))
+        for tier in view["tiers"].values():
+            measured.update(int(v * 100) for v in tier.values() if isinstance(v, (int, float)))
+    for block in MEASURED_BY_SYMBOL.values():
+        for arm in block["measured"].values():
+            measured.update(int(v * 100) for v in arm.values() if isinstance(v, (int, float)))
+
+    body = script[script.index("const ROUTES") : script.index("const SITE_NAME")]
+    for value in sorted(v for v in measured if v >= 10):
+        assert f"{value}%" not in body, f"measured value {value}% is hardcoded in the prerender"
+
+
+def test_route_shells_carry_real_body_copy():
+    """The whole point of the prerender: crawlers that skip JS get text."""
+    script = PRERENDER.read_text(encoding="utf-8")
+    assert 'id="root"' in script and "renderIntro" in script, "intro body is not rendered"
+    body = script[script.index("const ROUTES") : script.index("const SITE_NAME")]
+    for route in ROUTES:
+        chunk = body[body.index(f'"/{route}"') :]
+        chunk = chunk[: chunk.index("},\n  {")] if "},\n  {" in chunk else chunk
+        assert "h1:" in chunk, f"/{route} has no h1 for crawlers"
+        assert "intro:" in chunk, f"/{route} has no intro copy"
+
+
 def test_postbuild_hook_is_wired():
     pkg = (ROOT / "web" / "package.json").read_text(encoding="utf-8")
     assert "prerender-routes.mjs" in pkg, "prerender step is not run by the build"
