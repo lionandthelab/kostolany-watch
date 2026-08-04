@@ -71,11 +71,35 @@ def test_every_spa_route_is_prerendered():
     assert not missing, f"SPA routes without a prerendered shell: {sorted(missing)}"
 
 
-def test_static_shell_wins_over_the_catch_all_rewrite():
-    """The shells only work because Hosting prefers a matching static file."""
+@pytest.mark.parametrize("route", ROUTES)
+def test_route_rewrite_points_at_its_shell(route):
+    """Each route needs an explicit rewrite ahead of the catch-all.
+
+    A `<route>/index.html` directory instead makes Hosting 301 `/watch` to
+    `/watch/`, while the sitemap, the guide nav and the SPA router all emit the
+    slash-less form — every internal link would take a redirect hop and the
+    canonical would disagree with the served URL.
+    """
     fb = FIREBASE.read_text(encoding="utf-8")
-    assert '"source": "**"' in fb, "catch-all rewrite disappeared — re-check shell serving"
-    assert '"public": "web/dist"' in fb or '"public"' in fb
+    assert f'"source": "/{route}"' in fb, f"/{route} has no rewrite — falls through to catch-all"
+    assert f'"destination": "/{route}.html"' in fb
+
+    catch_all = fb.index('"source": "**"')
+    assert fb.index(f'"source": "/{route}"') < catch_all, (
+        f"/{route} rewrite must precede the catch-all — first match wins"
+    )
+
+
+def test_prerender_emits_flat_html_not_directories():
+    """Output must be `<route>.html`; a per-route directory brings back the 301."""
+    script = PRERENDER.read_text(encoding="utf-8")
+    writes = re.findall(r"writeFileSync\(\s*([^,]+),", script)
+    assert writes, "no writeFileSync found — did the script change shape?"
+    for target in writes:
+        assert "index.html" not in target, f"writes a directory index: {target.strip()}"
+    assert re.search(r'`\$\{route\.path\.replace\([^)]*\)\}\.html`', script), (
+        "route shells are no longer named <route>.html"
+    )
 
 
 def test_postbuild_hook_is_wired():

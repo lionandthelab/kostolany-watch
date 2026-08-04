@@ -121,12 +121,18 @@ function main() {
   }
   const shell = readFileSync(shellPath, "utf8");
 
+  mkdirSync(dist, { recursive: true });
   for (const route of ROUTES) {
-    const outDir = join(dist, route.path.replace(/^\//, ""));
-    mkdirSync(outDir, { recursive: true });
-    writeFileSync(join(outDir, "index.html"), renderRoute(shell, route), "utf8");
+    // Flat `<route>.html`, NOT `<route>/index.html`: a directory makes Firebase
+    // 301 `/watch` → `/watch/`, and every internal link, the sitemap and the
+    // SPA router all use the slash-less form. An explicit rewrite in
+    // firebase.json maps the route to this file with no redirect hop.
+    const name = `${route.path.replace(/^\//, "")}.html`;
+    writeFileSync(join(dist, name), renderRoute(shell, route), "utf8");
   }
-  console.log(`prerender: ${ROUTES.length} route shells → dist/{${ROUTES.map((r) => r.path.slice(1)).join(",")}}`);
+  console.log(
+    `prerender: ${ROUTES.length} route shells → dist/{${ROUTES.map((r) => `${r.path.slice(1)}.html`).join(",")}}`,
+  );
 }
 
 main();

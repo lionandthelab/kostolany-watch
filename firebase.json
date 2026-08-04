@@ -41,6 +41,22 @@
         }
       },
       {
+        "source": "/watch",
+        "destination": "/watch.html"
+      },
+      {
+        "source": "/macro",
+        "destination": "/macro.html"
+      },
+      {
+        "source": "/news",
+        "destination": "/news.html"
+      },
+      {
+        "source": "/about",
+        "destination": "/about.html"
+      },
+      {
         "source": "/guide",
         "destination": "/index.html"
       },
