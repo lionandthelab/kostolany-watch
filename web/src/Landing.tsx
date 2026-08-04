@@ -3,7 +3,7 @@ import { CYCLE, REGIME_GUIDE, TOP_MODELS } from "./eggGeometry";
 import { useT } from "./i18n";
 import LocaleSwitcher from "./LocaleSwitcher";
 import AdSlot from "./AdSlot";
-import NewsletterSignup from "./NewsletterSignup";
+import PushOptIn from "./PushOptIn";
 
 type Props = {
   onEnter: () => void;
@@ -54,8 +54,6 @@ export default function Landing({ onEnter, onMacro, onGuide }: Props) {
         <p>{t.landing.whatBody}</p>
       </section>
 
-      <AdSlot className="ad-slot--rail" slot="landing-mid" />
-
       <section className="landing-section">
         <h2>{t.landing.sixTitle}</h2>
         <p className="landing-section-lead">{t.landing.sixLead}</p>
@@ -101,8 +99,9 @@ export default function Landing({ onEnter, onMacro, onGuide }: Props) {
         <button type="button" className="btn-primary" onClick={onEnter}>
           {t.landing.ctaWatch}
         </button>
-        <NewsletterSignup source="landing" className="newsletter-signup--landing" />
+        <PushOptIn source="landing" className="push-optin--landing" />
         <p className="disclaimer landing-disclaimer">{t.landing.disclaimer}</p>
+        <AdSlot />
       </section>
     </div>
   );

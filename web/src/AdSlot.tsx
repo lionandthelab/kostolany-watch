@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 declare global {
   interface Window {
@@ -7,20 +7,28 @@ declare global {
 }
 
 type Props = {
-  /** Logical slot name for future AdSense mapping */
+  /** Numeric AdSense ad unit id (required when approved). */
   slot?: string;
   className?: string;
-  /** Min height so layout does not jump when ads load */
-  minHeight?: number;
 };
 
 const CLIENT = (import.meta.env.VITE_ADSENSE_CLIENT as string | undefined)?.trim() || "";
-const ENABLED = Boolean(CLIENT && CLIENT.startsWith("ca-pub-"));
+const SLOT =
+  (import.meta.env.VITE_ADSENSE_SLOT as string | undefined)?.trim() || "";
+const APPROVED_RAW = String(import.meta.env.VITE_ADSENSE_APPROVED ?? "")
+  .trim()
+  .toLowerCase();
+const APPROVED = APPROVED_RAW === "1" || APPROVED_RAW === "true" || APPROVED_RAW === "yes";
+
+/** Only render real units after AdSense approval + env opt-in. */
+export const ADSENSE_LIVE = Boolean(
+  APPROVED && CLIENT.startsWith("ca-pub-") && /^\d+$/.test(SLOT),
+);
 
 let scriptLoading = false;
 
 function ensureAdSenseScript() {
-  if (!ENABLED || typeof document === "undefined") return;
+  if (!ADSENSE_LIVE || typeof document === "undefined") return;
   if (
     document.querySelector("script[data-adsense]") ||
     document.querySelector('script[src*="pagead2.googlesyndication.com"]')
@@ -38,15 +46,18 @@ function ensureAdSenseScript() {
 }
 
 /**
- * AdSense unit. Uses auto format until numeric slot IDs are configured in AdSense.
- * Script client comes from VITE_ADSENSE_CLIENT (and index.html for verification).
+ * Small footer AdSense unit. Renders nothing until
+ * VITE_ADSENSE_APPROVED=true + client + numeric slot are set at build time.
+ * Collapses until an iframe actually fills.
  */
-export default function AdSlot({ slot = "auto", className = "", minHeight = 90 }: Props) {
+export default function AdSlot({ slot, className = "" }: Props) {
+  const hostRef = useRef<HTMLElement | null>(null);
   const pushed = useRef(false);
-  const adSlotId = /^\d+$/.test(slot) ? slot : undefined;
+  const [filled, setFilled] = useState(false);
+  const unitId = slot && /^\d+$/.test(slot) ? slot : SLOT;
 
   useEffect(() => {
-    if (!ENABLED) return;
+    if (!ADSENSE_LIVE || !unitId) return;
     ensureAdSenseScript();
     if (pushed.current) return;
     const t = window.setTimeout(() => {
@@ -58,29 +69,55 @@ export default function AdSlot({ slot = "auto", className = "", minHeight = 90 }
       }
     }, 50);
     return () => window.clearTimeout(t);
-  }, [slot]);
+  }, [unitId]);
 
-  if (!ENABLED) {
-    if (!import.meta.env.DEV) return null;
-    return (
-      <aside
-        className={`ad-slot ad-slot--placeholder ${className}`.trim()}
-        style={{ minHeight }}
-        aria-hidden="true"
-      >
-        <span>Ad slot (set VITE_ADSENSE_CLIENT)</span>
-      </aside>
-    );
+  useEffect(() => {
+    if (!ADSENSE_LIVE) return;
+    const host = hostRef.current;
+    if (!host) return;
+
+    const check = () => {
+      const iframe = host.querySelector("iframe");
+      if (!iframe) return;
+      const h = iframe.getBoundingClientRect().height;
+      if (h >= 24) setFilled(true);
+    };
+
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(host, { childList: true, subtree: true });
+    const poll = window.setInterval(check, 500);
+    const stop = window.setTimeout(() => window.clearInterval(poll), 10000);
+    return () => {
+      obs.disconnect();
+      window.clearInterval(poll);
+      window.clearTimeout(stop);
+    };
+  }, []);
+
+  if (!ADSENSE_LIVE || !unitId) {
+    if (import.meta.env.DEV && APPROVED && !unitId) {
+      return (
+        <aside className={`ad-slot ad-slot--footer-sm ad-slot--placeholder ${className}`.trim()} aria-hidden="true">
+          <span>AdSense approved but VITE_ADSENSE_SLOT missing</span>
+        </aside>
+      );
+    }
+    return null;
   }
 
   return (
-    <aside className={`ad-slot ${className}`.trim()} style={{ minHeight }}>
+    <aside
+      ref={hostRef}
+      className={`ad-slot ad-slot--footer-sm${filled ? " is-filled" : " is-pending"} ${className}`.trim()}
+      aria-hidden={!filled}
+    >
       <ins
         className="adsbygoogle"
         style={{ display: "block" }}
         data-ad-client={CLIENT}
-        {...(adSlotId ? { "data-ad-slot": adSlotId } : {})}
-        data-ad-format="auto"
+        data-ad-slot={unitId}
+        data-ad-format="horizontal"
         data-full-width-responsive="true"
       />
     </aside>

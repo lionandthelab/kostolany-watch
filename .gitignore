@@ -25,3 +25,6 @@ htmlcov/
 firebase-debug.log
 *.log
 
+
+# PageSpeed Insights scratch output
+psi.json

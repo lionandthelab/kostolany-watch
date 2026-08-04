@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchNews, type NewsDesk, type NewsTone } from "./api";
 import MarkdownBrief from "./MarkdownBrief";
 import { useLocale, useT } from "./i18n";
-import LocaleSwitcher from "./LocaleSwitcher";
-import AdSlot from "./AdSlot";
 
 const THEME_COLOR: Record<string, string> = {
   money: "#2f5d50",
@@ -13,22 +11,41 @@ const THEME_COLOR: Record<string, string> = {
   sentiment: "#6b7c74",
 };
 
+function toneLabelFor(
+  score: number,
+  labels: {
+    easeStrong: string;
+    easeSoft: string;
+    mixed: string;
+    guardSoft: string;
+    guardStrong: string;
+  },
+): string {
+  if (score >= 0.35) return labels.easeStrong;
+  if (score <= -0.35) return labels.guardStrong;
+  if (score > 0.12) return labels.easeSoft;
+  if (score < -0.12) return labels.guardSoft;
+  return labels.mixed;
+}
+
 function ToneMeter({
   tone,
   color,
   guard,
   ease,
+  label,
 }: {
   tone: NewsTone;
   color: string;
   guard: string;
   ease: string;
+  label: string;
 }) {
   const pct = ((tone.score + 1) / 2) * 100;
   return (
-    <div className="news-tone" aria-label={tone.label}>
+    <div className="news-tone" aria-label={label}>
       <div className="news-tone-meta">
-        <span className="news-tone-label">{tone.label}</span>
+        <span className="news-tone-label">{label}</span>
         <span className="news-tone-score">
           {tone.score > 0 ? "+" : ""}
           {(tone.score * 100).toFixed(0)}
@@ -49,20 +66,13 @@ function ToneMeter({
   );
 }
 
-type Props = {
-  onWatch?: () => void;
-  onMacro?: () => void;
-  onAbout?: () => void;
-  onGuide?: () => void;
-  /** @deprecated use onMacro */
-  onFlows?: () => void;
-  onBack?: () => void;
-};
 
-export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, onBack }: Props) {
+export default function NewsDesk() {
   const t = useT();
-  const { formatDate } = useLocale();
-  const goMacro = onMacro ?? onFlows;
+  const { formatDate, locale } = useLocale();
+  const lang = locale === "en" ? "en" : "ko";
+  const themeLabel = (theme: string, fallback?: string) =>
+    t.news.themeLabels[theme as keyof typeof t.news.themeLabels] ?? fallback ?? theme;
   const [desk, setDesk] = useState<NewsDesk | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,52 +104,27 @@ export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, 
     desk?.sections.filter((s) => themeFilter === "all" || s.theme === themeFilter) ?? [];
 
   return (
-    <div className="page news-page">
-      <nav className="topnav desk-nav">
-        <div className="desk-tabs" role="tablist" aria-label={t.nav.screens}>
-          <button type="button" className="desk-tab" onClick={onWatch}>
-            {t.nav.regime}
-          </button>
-          <button type="button" className="desk-tab" onClick={goMacro}>
-            {t.nav.macro}
-          </button>
-          <button type="button" className="desk-tab is-active" aria-current="page">
-            {t.nav.news}
-          </button>
-          {onGuide && (
-            <button type="button" className="desk-tab" onClick={onGuide}>
-              {t.nav.guide}
+    <div className="desk-panel news-page">
+      <header className="desk-hero fade-up">
+        <div className="desk-hero-row">
+          <h2 className="desk-title">{t.news.title}</h2>
+          <div className="cache-bar desk-hero-meta">
+            <span className="status">
+              {loading
+                ? desk
+                  ? t.common.refreshing
+                  : t.common.loading
+                : formatDate(desk?.asof) || ""}
+            </span>
+            <button
+              type="button"
+              className="btn-refresh"
+              disabled={loading}
+              onClick={() => void load(true)}
+            >
+              {t.common.refresh}
             </button>
-          )}
-        </div>
-        <div className="desk-nav-end">
-          <LocaleSwitcher />
-          {(onAbout || onBack) && (
-            <button type="button" className="nav-quiet nav-btn" onClick={onAbout ?? onBack}>
-              {onAbout ? t.nav.about : t.nav.aboutBack}
-            </button>
-          )}
-        </div>
-      </nav>
-
-      <header className="news-hero fade-up">
-        <h2 className="section-kicker">{t.news.title}</h2>
-        <div className="cache-bar">
-          <span className="status">
-            {loading
-              ? desk
-                ? t.common.refreshing
-                : t.common.loading
-              : formatDate(desk?.asof) || ""}
-          </span>
-          <button
-            type="button"
-            className="btn-refresh"
-            disabled={loading}
-            onClick={() => void load(true)}
-          >
-            {t.common.refresh}
-          </button>
+          </div>
         </div>
       </header>
 
@@ -160,8 +145,6 @@ export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, 
             </section>
           )}
 
-          <AdSlot className="ad-slot--rail" slot="news-mid" />
-
           <div className="news-filters" role="tablist" aria-label={t.news.themes}>
             <button
               type="button"
@@ -178,7 +161,7 @@ export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, 
                 style={{ ["--chip" as string]: THEME_COLOR[s.theme] }}
                 onClick={() => setThemeFilter(s.theme)}
               >
-                {s.label_ko}
+                {themeLabel(s.theme, lang === "ko" ? s.label_ko : s.label_en)}
               </button>
             ))}
           </div>
@@ -188,8 +171,8 @@ export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, 
             return (
               <section key={sec.theme} className="news-section fade-up">
                 <div className="news-section-head">
-                  <h2 className="news-section-title" style={{ color }}>
-                    {sec.label_ko}
+                  <h2 className="desk-subtitle" style={{ color }}>
+                    {themeLabel(sec.theme, lang === "ko" ? sec.label_ko : sec.label_en)}
                   </h2>
                   {sec.tone && (
                     <ToneMeter
@@ -197,10 +180,19 @@ export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, 
                       color={color}
                       guard={t.news.toneGuard}
                       ease={t.news.toneEase}
+                      label={toneLabelFor(sec.tone.score, t.news.toneLabels)}
                     />
                   )}
                 </div>
-                {sec.summary_ko && <p className="news-section-summary">{sec.summary_ko}</p>}
+                {((lang === "ko" ? sec.summary_ko : sec.summary_en) ||
+                  sec.summary_en ||
+                  sec.summary_ko) && (
+                  <p className="news-section-summary">
+                    {(lang === "ko" ? sec.summary_ko : sec.summary_en) ||
+                      sec.summary_en ||
+                      sec.summary_ko}
+                  </p>
+                )}
                 {sec.items.length === 0 ? (
                   <p className="status">{t.news.empty}</p>
                 ) : (
@@ -230,13 +222,15 @@ export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, 
           })}
 
           <section className="news-desk-links fade-up">
-            <h2 className="news-section-title">{t.news.official}</h2>
+            <h2 className="desk-subtitle">{t.news.official}</h2>
             <ul className="news-official">
               {desk.desk_links.map((d) => (
                 <li key={d.url}>
                   <a href={d.url} target="_blank" rel="noopener noreferrer">
                     <span className="news-theme-dot" style={{ background: THEME_COLOR[d.theme] }} />
-                    <span className="news-official-title">{d.title}</span>
+                    <span className="news-official-title">
+                      {(lang === "ko" ? d.title_ko : d.title_en) || d.title}
+                    </span>
                     <span className="news-official-src">{d.source}</span>
                   </a>
                 </li>
@@ -244,7 +238,7 @@ export default function NewsDesk({ onWatch, onMacro, onAbout, onGuide, onFlows, 
             </ul>
           </section>
 
-          <p className="disclaimer">{desk.disclaimer}</p>
+          <p className="disclaimer">{t.common.disclaimer}</p>
         </>
       )}
     </div>

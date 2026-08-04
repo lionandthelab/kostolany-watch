@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import Path as FPath
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -33,22 +34,15 @@ WATCH_DEFAULT_STRIDE = 2
 MAX_WATCH_QUEUE = max(6, 2 * len(WATCH_MARKETS))
 
 
-class NewsletterSubscribeBody(BaseModel):
-    email: str = Field(..., min_length=3, max_length=254)
+class PushSubscribeBody(BaseModel):
+    endpoint: str = Field(..., min_length=12, max_length=2048)
+    keys: dict[str, str]
+    hour_kst: int = Field(22, ge=0, le=23)
     locale: str = Field("ko", max_length=16)
-    source: str = Field("web", max_length=64)
-    website: str = Field("", max_length=200, description="Honeypot; leave empty")
 
 
-class BriefUpsertBody(BaseModel):
-    slug: str = Field(..., min_length=3, max_length=80)
-    kind: str = Field(..., pattern="^(weekly|daily)$")
-    date: str = Field(..., min_length=10, max_length=10)
-    title: dict[str, str]
-    description: dict[str, str] | None = None
-    body: dict[str, str]
-    source: str = Field("api", max_length=64)
-    dispatch: bool = Field(False, description="Also email subscribers after save")
+class PushUnsubscribeBody(BaseModel):
+    endpoint: str = Field(..., min_length=12, max_length=2048)
 
 _watch_bg_lock = threading.Lock()
 _watch_refreshing: set[str] = set()
@@ -640,11 +634,20 @@ def create_app() -> FastAPI:
     ) -> dict[str, Any]:
         return ensure_watch_market(symbol, force=force)
 
+    @app.get("/macro")
+    def macro_board(
+        refresh: bool = Query(False, description="Rebuild macro board (rates, CPI, jobs, FG)"),
+    ) -> dict[str, Any]:
+        """US macro board for the Macro desk (no Korea panel)."""
+        from kostolany.macro_board import get_macro_board
+
+        return get_macro_board(force=refresh)
+
     @app.get("/news")
     def news_desk(
         refresh: bool = Query(False, description="Kick background refresh; return cache now"),
     ) -> dict[str, Any]:
-        """Macro desk headlines for money / credit / Korea / sentiment."""
+        """US + crypto headlines (money / credit / crypto / sentiment). EN-primary."""
         from kostolany.connectors.news import fetch_news_desk
 
         return fetch_news_desk(use_cache=True, refresh=refresh)
@@ -743,23 +746,17 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=f"Failed to build flow: {exc}") from exc
 
     @app.post("/newsletter/subscribe")
-    def newsletter_subscribe(payload: NewsletterSubscribeBody, request: Request) -> dict[str, Any]:
-        """Collect weekly-brief email signups; welcome mail via Resend when configured."""
-        from kostolany.newsletter import subscribe as newsletter_subscribe_fn
-
-        client = request.client.host if request.client else "anon"
-        result = newsletter_subscribe_fn(
-            payload.email,
-            locale=payload.locale,
-            source=payload.source,
-            client_key=client,
-            honeypot=payload.website,
+    def newsletter_subscribe() -> dict[str, Any]:
+        """Retired — use browser push (`/push/subscribe`) instead."""
+        raise HTTPException(
+            status_code=410,
+            detail="newsletter_retired_use_push",
         )
-        if not result.get("ok") and result.get("status") == "rate_limited":
-            raise HTTPException(status_code=429, detail="too_many_requests")
-        if not result.get("ok") and result.get("status") == "invalid":
-            raise HTTPException(status_code=400, detail="invalid_email")
-        return result
+
+    @app.post("/newsletter/dispatch")
+    def newsletter_dispatch() -> dict[str, Any]:
+        """Retired email dispatch."""
+        raise HTTPException(status_code=410, detail="newsletter_retired_use_push")
 
     @app.get("/briefs")
     def briefs_list(
@@ -779,57 +776,96 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="not_found")
         return brief
 
-    @app.post("/briefs")
-    def briefs_upsert(payload: BriefUpsertBody, request: Request) -> dict[str, Any]:
-        """Local Claude weekly script / operators publish briefs here (cron secret)."""
-        from kostolany.briefs import save_brief
-        from kostolany.newsletter import cron_secret_ok, dispatch_latest
+    @app.get("/push/vapid-public-key")
+    def push_vapid_public_key() -> dict[str, Any]:
+        from kostolany.push_notify import vapid_configured, vapid_public_key
+
+        key = vapid_public_key()
+        return {"configured": vapid_configured(), "publicKey": key}
+
+    @app.post("/push/subscribe")
+    def push_subscribe(payload: PushSubscribeBody) -> dict[str, Any]:
+        from kostolany.push_notify import upsert_subscription, vapid_configured
+
+        if not vapid_configured():
+            raise HTTPException(status_code=503, detail="vapid_not_configured")
+        try:
+            return upsert_subscription(payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/push/unsubscribe")
+    def push_unsubscribe(payload: PushUnsubscribeBody) -> dict[str, Any]:
+        from kostolany.push_notify import deactivate_subscription
+
+        try:
+            return deactivate_subscription(payload.endpoint)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/push/dispatch")
+    def push_dispatch(
+        request: Request,
+        hour_kst: int | None = Query(None, ge=0, le=23),
+        force: bool = Query(False, description="Ignore hour filter; notify all active"),
+    ) -> dict[str, Any]:
+        """Cloud Scheduler (hourly): send regime metrics to matching push subscribers."""
+        from kostolany.push_notify import cron_secret_ok, dispatch_daily
+
+        secret = request.headers.get("x-cron-secret") or request.query_params.get("secret")
+        if not cron_secret_ok(secret):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        return dispatch_daily(hour_kst=hour_kst, force=force)
+
+    @app.post("/ledger/record")
+    def ledger_record(
+        request: Request,
+        date: str | None = Query(
+            None,
+            description="KST date to archive (defaults to today)",
+            pattern=r"^\d{4}-\d{2}-\d{2}$",
+        ),
+    ) -> dict[str, Any]:
+        """Cloud Scheduler (daily): archive today's desk state, write-once.
+
+        Re-running is safe and is a no-op once the day is on file — there is
+        no overwrite path by design.
+        """
+        from kostolany.ledger import record_day
+        from kostolany.push_notify import cron_secret_ok
 
         secret = request.headers.get("x-cron-secret") or request.query_params.get("secret")
         if not cron_secret_ok(secret):
             raise HTTPException(status_code=401, detail="unauthorized")
         try:
-            brief = save_brief(payload.model_dump())
+            return record_day(date)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        out: dict[str, Any] = {"ok": True, "brief": brief}
-        if payload.dispatch:
-            out["dispatch"] = dispatch_latest(kind=payload.kind, force=True)
-        return out
 
-    @app.post("/briefs/daily/generate")
-    def briefs_daily_generate(
-        request: Request,
-        dispatch: bool = Query(True, description="Email subscribers after generate"),
-        force: bool = Query(False),
+    @app.get("/ledger")
+    def ledger_list(
+        month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        limit: int = Query(60, ge=1, le=400),
     ) -> dict[str, Any]:
-        """Cloud Scheduler: build deterministic daily card from live desks + optional email."""
-        from kostolany.briefs import generate_and_save_daily
-        from kostolany.newsletter import cron_secret_ok, dispatch_latest
+        from kostolany.ledger import kst_today, list_records
 
-        secret = request.headers.get("x-cron-secret") or request.query_params.get("secret")
-        if not cron_secret_ok(secret):
-            raise HTTPException(status_code=401, detail="unauthorized")
-        brief = generate_and_save_daily()
-        out: dict[str, Any] = {"ok": True, "brief": brief}
-        if dispatch:
-            out["dispatch"] = dispatch_latest(kind="daily", force=force)
-        return out
+        month = month or kst_today()[:7]
+        try:
+            return {"month": month, "items": list_records(month=month, limit=limit)}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @app.post("/newsletter/dispatch")
-    def newsletter_dispatch(
-        request: Request,
-        force: bool = Query(False, description="Re-send even if slug already dispatched"),
-        dry_run: bool = Query(False, description="Parse feed + count only; no send"),
-        kind: str = Query("weekly", pattern="^(weekly|daily)$"),
-    ) -> dict[str, Any]:
-        """Email latest weekly or daily brief to subscribers."""
-        from kostolany.newsletter import cron_secret_ok, dispatch_latest
+    @app.get("/ledger/{day}")
+    def ledger_get(day: str = FPath(..., pattern=r"^\d{4}-\d{2}-\d{2}$")) -> dict[str, Any]:
+        from kostolany.ledger import get_record
 
-        secret = request.headers.get("x-cron-secret") or request.query_params.get("secret")
-        if not cron_secret_ok(secret):
-            raise HTTPException(status_code=401, detail="unauthorized")
-        return dispatch_latest(force=force, dry_run=dry_run, kind=kind)
+        try:
+            record = get_record(day)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if record is None:
+            raise HTTPException(status_code=404, detail="not_found")
+        return record
 
     return app
 

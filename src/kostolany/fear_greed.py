@@ -20,7 +20,7 @@ from kostolany.settings import get_settings
 log = logging.getLogger(__name__)
 
 GAUGE_TTL_HOURS = 6.0
-_CACHE_NAME = "macro_fear_greed_v2.json"
+_CACHE_NAME = "macro_fear_greed_v3.json"
 _SERIES_LOOKBACK = 260  # ~1y trading days of score history
 
 
@@ -28,7 +28,7 @@ def _path():
     return get_settings().cache_path / _CACHE_NAME
 
 
-def _label(score: float) -> str:
+def _label_ko(score: float) -> str:
     if score < 20:
         return "극단적 공포"
     if score < 40:
@@ -38,6 +38,23 @@ def _label(score: float) -> str:
     if score < 80:
         return "탐욕"
     return "극단적 탐욕"
+
+
+def _label_en(score: float) -> str:
+    if score < 20:
+        return "Extreme fear"
+    if score < 40:
+        return "Fear"
+    if score < 60:
+        return "Neutral"
+    if score < 80:
+        return "Greed"
+    return "Extreme greed"
+
+
+def _label(score: float) -> str:
+    """Legacy Korean label kept for older cache readers."""
+    return _label_ko(score)
 
 
 def _vix_to_score(vix: float) -> float:
@@ -113,7 +130,9 @@ def compute_fear_greed() -> dict[str, Any]:
 
     return {
         "score": score,
-        "label": _label(score),
+        "label": _label_ko(score),
+        "label_ko": _label_ko(score),
+        "label_en": _label_en(score),
         "scale": "fear_greed_0_100",
         "asof": str(pd.Timestamp(last_ts).date()),
         "source": "VIX·SPY·IRX proxy (CME FedWatch API 비연동)",
@@ -165,6 +184,8 @@ def get_fear_greed(*, force: bool = False) -> dict[str, Any]:
         return {
             "score": 50,
             "label": "중립",
+            "label_ko": "중립",
+            "label_en": "Neutral",
             "scale": "fear_greed_0_100",
             "asof": time.strftime("%Y-%m-%d"),
             "source": "fallback",

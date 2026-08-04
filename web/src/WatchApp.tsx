@@ -18,7 +18,6 @@ import {
   type WatchBundle,
 } from "./api";
 import { useLocale, useT } from "./i18n";
-import LocaleSwitcher from "./LocaleSwitcher";
 import { trackEvent } from "./analytics";
 
 /** Regime markets: US equities + crypto (no Korea). */
@@ -77,18 +76,31 @@ function ExplainModal({
   );
 }
 
-type Props = {
-  onMacro?: () => void;
-  onAbout?: () => void;
-  onNews?: () => void;
-  onGuide?: () => void;
-};
-
 function fill(tpl: string, slots: Record<string, string>): string {
   return tpl.replace(/\{(\w+)\}/g, (_, k) => slots[k] ?? `{${k}}`);
 }
 
-export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
+function formatCalibrationNote(cal: RegimeCalibration, tpl: string): string {
+  const vals = Object.values(cal.measured);
+  if (!vals.length) return cal.note_ko;
+  const exactLo = Math.round(Math.min(...vals.map((v) => v.exact6)) * 100);
+  const exactHi = Math.round(Math.max(...vals.map((v) => v.exact6)) * 100);
+  const exact = exactLo === exactHi ? `${exactLo}%` : `${exactLo}~${exactHi}%`;
+  const eceLo = Math.min(...vals.map((v) => v.ece)).toFixed(2);
+  const eceHi = Math.max(...vals.map((v) => v.ece)).toFixed(2);
+  const sideHit = cal.momo_floor?.vote_side ?? cal.momo_floor?.side_median ?? 0;
+  return fill(tpl, {
+    window: cal.window,
+    n: cal.n_oos_bars.toLocaleString(),
+    exact,
+    chance: `${Math.round(cal.exact6_chance * 100)}`,
+    eceLo,
+    eceHi,
+    sidePct: `${Math.round(sideHit * 100)}`,
+  });
+}
+
+export default function WatchApp() {
   const t = useT();
   const { formatDate } = useLocale();
   const [symbol, setSymbol] = useState<string>("^GSPC");
@@ -270,15 +282,6 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
     return () => stopPoll();
   }, [symbol, load, stopPoll]);
 
-  const confidenceBand = useCallback(
-    (confidence: number) => {
-      if (confidence >= 0.75) return t.watch.levelHigh;
-      if (confidence >= 0.45) return t.watch.levelMid;
-      return t.watch.levelLow;
-    },
-    [t],
-  );
-
   const focusCopy = t.models[focus];
   const hasAny = Object.keys(snaps).length > 0;
   const stillLoading = loading && !hasAny;
@@ -306,7 +309,6 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
   const regime = (focusSnap?.regime ?? rim.regime) as RegimeCode;
   const guideColor = (REGIME_GUIDE[regime] ?? REGIME_GUIDE.A2).color;
   const guide = t.regimes[regime] ?? t.regimes.A2;
-  const confidence = focusSnap?.confidence ?? 0;
   const asof = focusSnap?.asof ?? "";
 
   const agreement = useMemo(() => {
@@ -321,13 +323,12 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
   const evidence = useMemo(() => {
     const level = (v: number) =>
       v < 0.35 ? t.watch.levelLow : v < 0.65 ? t.watch.levelMid : t.watch.levelHigh;
+    const gaugeLabel = (key: string, fallback: string) =>
+      key in t.watch.gauges ? t.watch.gauges[key as keyof typeof t.watch.gauges] : fallback;
     if (focusSnap?.evidence?.length) {
       return focusSnap.evidence.map((e) => ({
         ...e,
-        label:
-          e.key in t.watch.gauges
-            ? t.watch.gauges[e.key as keyof typeof t.watch.gauges]
-            : e.label,
+        label: gaugeLabel(e.key, e.label),
         level: level(e.value),
       }));
     }
@@ -349,53 +350,50 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
     }));
   }, [focusSnap, t]);
 
-  return (
-    <div className="page watch-slim">
-      <nav className="topnav desk-nav">
-        <div className="desk-tabs" role="tablist" aria-label={t.nav.screens}>
-          <button type="button" className="desk-tab is-active" aria-current="page">
-            {t.nav.regime}
-          </button>
-          <button type="button" className="desk-tab" onClick={onMacro}>
-            {t.nav.macro}
-          </button>
-          {onNews && (
-            <button type="button" className="desk-tab" onClick={onNews}>
-              {t.nav.news}
-            </button>
-          )}
-          {onGuide && (
-            <button type="button" className="desk-tab" onClick={onGuide}>
-              {t.nav.guide}
-            </button>
-          )}
-        </div>
-        <div className="desk-nav-end">
-          <LocaleSwitcher />
-          {onAbout && (
-            <button type="button" className="nav-quiet nav-btn" onClick={onAbout}>
-              {t.nav.about}
-            </button>
-          )}
-        </div>
-      </nav>
+  const alignLine =
+    focus === "momo" && vote
+      ? vote.tier === "mixed"
+        ? fill(t.conviction.badge.mixed, {
+            a: String(Math.max(vote.up, vote.down)),
+            b: String(Math.min(vote.up, vote.down)),
+          })
+        : fill(t.conviction.badge[vote.tier], {
+            side: t.conviction.sideWord[vote.side],
+          })
+      : null;
 
+  const directionLine =
+    focus === "momo" && vote && cview
+      ? vote.tier === "mixed"
+        ? fill(t.conviction.directionMixed, {
+            p: pctFloor(cview.tiers.mixed.side_hit),
+          })
+        : fill(t.conviction.directionAligned, {
+            tierName: t.conviction.tierName[vote.tier],
+            side: t.conviction.sideWord[vote.side],
+            p: pctFloor(cview.tiers[vote.tier].side_hit),
+          })
+      : null;
+
+  return (
+    <div className="desk-panel watch-slim">
       <section className="hero hero-watch">
         <div className="hero-copy fade-up">
-          <h1 className="brand">Kostolany Watch</h1>
-
-          <div className="cache-bar">
-            <span className="status">
-              {stillLoading ? t.common.loading : formatDate(cacheMeta?.cached_at) || asof}
-            </span>
-            <button
-              type="button"
-              className="btn-refresh"
-              disabled={stillLoading || cacheMeta?.can_refresh === false}
-              onClick={() => void load(symbol, true)}
-            >
-              {bgBusy ? t.common.refreshing : t.common.refresh}
-            </button>
+          <div className="watch-head desk-hero-row">
+            <h1 className="desk-title">Kostolany Watch</h1>
+            <div className="cache-bar desk-hero-meta">
+              <span className="status">
+                {stillLoading ? t.common.loading : formatDate(cacheMeta?.cached_at) || asof}
+              </span>
+              <button
+                type="button"
+                className="btn-refresh"
+                disabled={stillLoading || cacheMeta?.can_refresh === false}
+                onClick={() => void load(symbol, true)}
+              >
+                {bgBusy ? t.common.refreshing : t.common.refresh}
+              </button>
+            </div>
           </div>
 
           {error && (
@@ -412,45 +410,20 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
               <div className="regime-compact-head">
                 <strong style={{ color: guideColor }}>{regime}</strong>
                 <span className="regime-brief-name">{guide.name}</span>
-                {(focus !== "momo" || !vote) && (
-                  <span className="status">
-                    {t.watch.confidence} {confidenceBand(confidence)}
-                  </span>
-                )}
               </div>
+              <p className="regime-trait">{guide.trait}</p>
 
               {focus === "momo" && vote && (
-                <div className="conviction-card">
+                <div className="conviction-card conviction-card--slim">
                   <div className="align-badge">
                     <span className="vote-dots" aria-hidden="true">
                       {vote.rules.map((r) => (
                         <i key={r.id} className={`vote-dot is-${r.vote}`} />
                       ))}
                     </span>
-                    <span className="align-badge-text">
-                      {vote.tier === "mixed"
-                        ? fill(t.conviction.badge.mixed, {
-                            a: String(Math.max(vote.up, vote.down)),
-                            b: String(Math.min(vote.up, vote.down)),
-                          })
-                        : fill(t.conviction.badge[vote.tier], {
-                            side: t.conviction.sideWord[vote.side],
-                          })}
-                    </span>
+                    <span className="align-badge-text">{alignLine}</span>
                   </div>
-                  {cview && (
-                    <p className="conviction-direction">
-                      {vote.tier === "mixed"
-                        ? fill(t.conviction.directionMixed, {
-                            p: pctFloor(cview.tiers.mixed.side_hit),
-                          })
-                        : fill(t.conviction.directionAligned, {
-                            tierName: t.conviction.tierName[vote.tier],
-                            side: t.conviction.sideWord[vote.side],
-                            p: pctFloor(cview.tiers[vote.tier].side_hit),
-                          })}
-                    </p>
-                  )}
+                  {directionLine && <p className="conviction-direction">{directionLine}</p>}
                   {cview && (
                     <p className="conviction-zone">
                       {fill(t.conviction.zoneLine, {
@@ -460,117 +433,122 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
                     </p>
                   )}
                   {!cview && <p className="status">{t.conviction.unmeasured}</p>}
-                  {vote.up === vote.down && (
-                    <p className="status conviction-tie">{t.conviction.tieNote}</p>
-                  )}
 
-                  {cview && (
-                    <details className="conviction-expander">
-                      <summary>{t.conviction.detailTitle}</summary>
-                      <ul className="claims-ladder">
-                        <li>
-                          {fill(t.conviction.ladderDirection, {
-                            p: pctFloor(cview.menu.side_hit),
-                          })}
-                        </li>
-                        <li>
-                          {fill(t.conviction.ladderZone, {
-                            p1: pctFloor(cview.menu.zone1_hit),
-                            p2: pctFloor(cview.menu.zone2_hit),
-                          })}
-                        </li>
-                        <li>
-                          {fill(t.conviction.ladderExact, {
-                            p: pctFloor(cview.menu.exact_hit),
-                            ceiling: pctFloor(cview.menu.exact_ceiling),
-                          })}
-                        </li>
-                      </ul>
-                      <p className="status">{t.conviction.ladderExactWhy}</p>
-                    </details>
-                  )}
-                  {cview && (
-                    <details className="conviction-expander">
-                      <summary>{t.conviction.tierTableTitle}</summary>
-                      <table className="tier-table">
-                        <thead>
-                          <tr>
-                            <th>{t.conviction.tierTableCols.tier}</th>
-                            <th>{t.conviction.tierTableCols.side}</th>
-                            <th>{t.conviction.tierTableCols.share}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(["unanimous", "strong", "lean", "mixed"] as const).map((k) => (
-                            <tr key={k} className={vote.tier === k ? "is-current" : undefined}>
-                              <td>{t.conviction.tierTableRows[k]}</td>
-                              <td>{pctFloor(cview.tiers[k].side_hit)}</td>
-                              <td>
-                                {fill(t.conviction.tierTableShare, {
-                                  p: pctFloor(cview.tiers[k].share),
-                                })}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <p className="status">
-                        {fill(t.conviction.tierTableFooter, {
-                          n: cview.n_bars.toLocaleString(),
-                          legs: String(cview.n_legs),
-                        })}
-                      </p>
-                    </details>
-                  )}
-                  <details className="conviction-expander">
-                    <summary>{t.conviction.ledgerTitle}</summary>
-                    <ul className="rule-ledger">
-                      {vote.rules.map((r) => (
-                        <li key={r.id} className={`is-${r.vote}`}>
-                          <span>
-                            {t.conviction.ledgerRules[
-                              r.id as keyof typeof t.conviction.ledgerRules
-                            ]}
-                          </span>
-                          <em>{t.conviction.sideWord[r.vote]}</em>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="status">{t.conviction.ledgerFooter}</p>
-                  </details>
-                  {cview && (
-                    <details className="conviction-expander">
-                      <summary>{t.conviction.methodTitle}</summary>
-                      <ul className="method-lines">
-                        {t.conviction.methodLines.map((line, i) => (
-                          <li key={i}>
-                            {fill(line, {
-                              n: cview.n_bars.toLocaleString(),
-                              legs: String(cview.n_legs),
-                              source: cview.source,
-                            })}
+                  <details className="watch-details">
+                    <summary>{t.conviction.detailTitle}</summary>
+                    <div className="watch-details-body">
+                      {cview && (
+                        <>
+                          <ul className="claims-ladder">
+                            <li>
+                              {fill(t.conviction.ladderDirection, {
+                                p: pctFloor(cview.menu.side_hit),
+                              })}
+                            </li>
+                            <li>
+                              {fill(t.conviction.ladderZone, {
+                                p1: pctFloor(cview.menu.zone1_hit),
+                                p2: pctFloor(cview.menu.zone2_hit),
+                              })}
+                            </li>
+                            <li>
+                              {fill(t.conviction.ladderExact, {
+                                p: pctFloor(cview.menu.exact_hit),
+                                ceiling: pctFloor(cview.menu.exact_ceiling),
+                              })}
+                            </li>
+                          </ul>
+                          <p className="status">{t.conviction.ladderExactWhy}</p>
+                          <table className="tier-table">
+                            <thead>
+                              <tr>
+                                <th>{t.conviction.tierTableCols.tier}</th>
+                                <th>{t.conviction.tierTableCols.side}</th>
+                                <th>{t.conviction.tierTableCols.share}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(["unanimous", "strong", "lean", "mixed"] as const).map((k) => (
+                                <tr key={k} className={vote.tier === k ? "is-current" : undefined}>
+                                  <td>{t.conviction.tierTableRows[k]}</td>
+                                  <td>{pctFloor(cview.tiers[k].side_hit)}</td>
+                                  <td>
+                                    {fill(t.conviction.tierTableShare, {
+                                      p: pctFloor(cview.tiers[k].share),
+                                    })}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+                      <ul className="rule-ledger">
+                        {vote.rules.map((r) => (
+                          <li key={r.id} className={`is-${r.vote}`}>
+                            <span>
+                              {t.conviction.ledgerRules[
+                                r.id as keyof typeof t.conviction.ledgerRules
+                              ]}
+                            </span>
+                            <em>{t.conviction.sideWord[r.vote]}</em>
                           </li>
                         ))}
                       </ul>
-                    </details>
-                  )}
+                      {cview && (
+                        <ul className="method-lines">
+                          {t.conviction.methodLines.map((line, i) => (
+                            <li key={i}>
+                              {fill(line, {
+                                n: cview.n_bars.toLocaleString(),
+                                legs: String(cview.n_legs),
+                                source: cview.source,
+                              })}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {agreement && (
+                        <p className="brief-agree">
+                          {fill(t.conviction.aiRefTitle, {
+                            code: agreement.regime,
+                            k: String(agreement.n),
+                            total: String(agreement.total),
+                          })}
+                        </p>
+                      )}
+                      <div className="explain-row">
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          onClick={() => {
+                            trackEvent("open_explain", { kind: "regime", symbol });
+                            setModal("regime");
+                          }}
+                        >
+                          {t.watch.explainRegime}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          onClick={() => {
+                            trackEvent("open_explain", { kind: "analysts", symbol });
+                            setModal("analysts");
+                          }}
+                        >
+                          {t.watch.explainAi}
+                        </button>
+                      </div>
+                    </div>
+                  </details>
                 </div>
-              )}
-              {agreement && (
-                <p className="brief-agree">
-                  {fill(t.conviction.aiRefTitle, {
-                    code: agreement.regime,
-                    k: String(agreement.n),
-                    total: String(agreement.total),
-                  })}
-                </p>
               )}
 
               {evidence.length > 0 && (
                 <ul className="gauge-strip">
                   {evidence.map((e) => (
-                    <li key={e.key}>
-                      <span>{e.label}</span>
+                    <li key={e.key} title={e.detail || undefined}>
+                      <span className="gauge-label">{e.label}</span>
                       <div className="evidence-meter">
                         <i style={{ width: `${Math.min(100, Math.max(0, e.value * 100))}%` }} />
                       </div>
@@ -580,47 +558,83 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
                 </ul>
               )}
 
-              <div className="explain-row">
-                <button type="button" className="btn-ghost btn-sm" onClick={() => {
-                  trackEvent("open_explain", { kind: "regime", symbol });
-                  setModal("regime");
-                }}>
-                  {t.watch.explainRegime}
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost btn-sm"
-                  onClick={() => {
-                    trackEvent("open_explain", { kind: "analysts", symbol });
-                    setModal("analysts");
-                  }}
-                >
-                  {t.watch.explainAi}
-                </button>
-              </div>
+              {!(focus === "momo" && vote) && (
+                <details className="watch-details">
+                  <summary>{t.conviction.detailTitle}</summary>
+                  <div className="watch-details-body">
+                    {agreement && (
+                      <p className="brief-agree">
+                        {fill(t.conviction.aiRefTitle, {
+                          code: agreement.regime,
+                          k: String(agreement.n),
+                          total: String(agreement.total),
+                        })}
+                      </p>
+                    )}
+                    <div className="explain-row">
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={() => {
+                          trackEvent("open_explain", { kind: "regime", symbol });
+                          setModal("regime");
+                        }}
+                      >
+                        {t.watch.explainRegime}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm"
+                        onClick={() => {
+                          trackEvent("open_explain", { kind: "analysts", symbol });
+                          setModal("analysts");
+                        }}
+                      >
+                        {t.watch.explainAi}
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              )}
             </div>
           )}
 
-          {focusSnap && <p className="disclaimer">{focusSnap.disclaimer}</p>}
+          {focusSnap && <p className="disclaimer disclaimer--compact">{t.common.disclaimer}</p>}
         </div>
 
         <div className="egg-stage fade-up">
-          <div className="market-tabs" role="tablist" aria-label={t.watch.markets}>
-            {MARKETS.map((m) => (
+          <div className="egg-stage-toolbar">
+            <div className="market-tabs" role="tablist" aria-label={t.watch.markets}>
+              {MARKETS.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={symbol === m.value}
+                  className={`market-tab${symbol === m.value ? " is-active" : ""}`}
+                  onClick={() => {
+                    setSymbol(m.value);
+                    trackEvent("select_market", { symbol: m.value });
+                  }}
+                >
+                  {t.watch[m.labelKey]}
+                </button>
+              ))}
+            </div>
+            {focus === "momo" && vote && (
               <button
-                key={m.value}
                 type="button"
-                role="tab"
-                aria-selected={symbol === m.value}
-                className={`market-tab${symbol === m.value ? " is-active" : ""}`}
-                onClick={() => {
-                  setSymbol(m.value);
-                  trackEvent("select_market", { symbol: m.value });
-                }}
+                className="egg-info"
+                title={fill(t.conviction.eggLegend, {
+                  sideSectors: vote.side === "up" ? "A1·A2·A3" : "B1·B2·B3",
+                })}
+                aria-label={fill(t.conviction.eggLegend, {
+                  sideSectors: vote.side === "up" ? "A1·A2·A3" : "B1·B2·B3",
+                })}
               >
-                {t.watch[m.labelKey]}
+                i
               </button>
-            ))}
+            )}
           </div>
           <EggChart
             models={modelMarks}
@@ -634,13 +648,6 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
             loading={!hasAny && stillLoading}
             pendingLabel={null}
           />
-          {focus === "momo" && vote && (
-            <p className="egg-legend status">
-              {fill(t.conviction.eggLegend, {
-                sideSectors: vote.side === "up" ? "A1·A2·A3" : "B1·B2·B3",
-              })}
-            </p>
-          )}
         </div>
       </section>
 
@@ -692,7 +699,7 @@ export default function WatchApp({ onMacro, onAbout, onNews, onGuide }: Props) {
               (calibration.measured[focus]?.exact6 ??
                 calibration.constant_prior_baseline.exact6) * 100
             ).toFixed(0)}
-            %. {calibration.note_ko}
+            %. {formatCalibrationNote(calibration, t.watch.calibrationNote)}
           </p>
         )}
       </ExplainModal>

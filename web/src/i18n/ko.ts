@@ -20,6 +20,8 @@ export const ko: Messages = {
     close: "닫기",
     asof: "기준",
     loadFailed: "불러오지 못했습니다.",
+    disclaimer:
+      "본 정보는 교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다. 투자 판단과 손실에 대한 책임은 이용자 본인에게 있습니다.",
   },
   watch: {
     confidence: "확신",
@@ -44,7 +46,10 @@ export const ko: Messages = {
       participation: "참여",
       money: "유동성",
       sentiment: "심리",
+      position: "위치·추세",
     },
+    calibrationNote:
+      "{window} 구간 {n}봉 워크포워드 실측: 6국면 정확 적중률 약 {exact}(무작위 {chance}%), 보정 오차(ECE) {eceLo}~{eceHi}. 기본 헤드(추세 규칙)는 학습된 모델이 아니며, 표시 확률이 실측 적중률과 일치하도록 고정되어 있습니다(상승/하락 적중 {sidePct}%). AI 3종의 확신도는 순위 참고용이며 적중 확률이 아닙니다.",
   },
   macro: {
     title: "거시 흐름",
@@ -66,6 +71,20 @@ export const ko: Messages = {
     official: "공식 데스크",
     toneGuard: "경계",
     toneEase: "완화",
+    themeLabels: {
+      money: "돈·금리",
+      credit: "신용·위험",
+      crypto: "가상화폐",
+      korea: "한국 시장",
+      sentiment: "심리·위험선호",
+    },
+    toneLabels: {
+      easeStrong: "완화·위험선호 쪽",
+      easeSoft: "약한 완화 기조",
+      mixed: "혼조·중립",
+      guardSoft: "약한 경계 기조",
+      guardStrong: "경계·위험회피 쪽",
+    },
   },
   landing: {
     headline: "시장이 달걀의 어디쯤인지, 확률로 봅니다.",
@@ -87,28 +106,32 @@ export const ko: Messages = {
     title: "가이드",
     lead: "코스톨라니 달걀·6국면 해설과 주간 브리핑. 교육·연구용이며 투자 권유가 아닙니다.",
     back: "← 가이드 목록",
-    cadence: "주간은 로컬 Claude 브리핑, 데일리는 자동 국면 카드로 올립니다.",
+    cadence: "가이드·에버그린 해설과 국면 화면을 함께 보면 됩니다.",
     rss: "RSS",
+    missingLocale: "이 글의 한국어 본문이 아직 없습니다.",
   },
-  newsletter: {
-    title: "주간 브리핑 이메일",
-    lead: "새 주간 국면 브리핑이 올라가면 알려 드립니다. 매매 신호가 아닙니다.",
-    emailLabel: "이메일",
-    placeholder: "you@example.com",
-    submit: "신청하기",
-    submitting: "등록 중…",
-    success: "신청되었습니다. 확인 메일과 매주 금요일 브리핑을 보내 드립니다.",
-    already: "이미 신청된 이메일입니다.",
-    invalid: "이메일 형식을 확인해 주세요.",
-    rateLimited: "요청이 많습니다. 잠시 후 다시 시도해 주세요.",
-    error: "신청에 실패했습니다. 잠시 후 다시 시도해 주세요.",
-    note: "교육·연구용 안내만 보내며 투자 권유가 아닙니다. 스팸으로 쓰지 않습니다.",
+  push: {
+    title: "일일 국면 알림",
+    lead: "선택한 시각(KST)에 미국·비트코인 국면 지표를 브라우저로 알려 드립니다. 매매 신호가 아닙니다.",
+    hourLabel: "알림 시각",
+    enable: "알림 켜기",
+    disable: "알림 끄기",
+    busy: "처리 중…",
+    success: "알림이 켜졌습니다. 브라우저 권한을 유지해 주세요.",
+    off: "알림을 껐습니다.",
+    denied: "알림 권한이 거부되었습니다. 브라우저 설정에서 허용해 주세요.",
+    unavailable: "알림 서버가 아직 준비되지 않았습니다.",
+    unsupported: "이 브라우저는 푸시 알림을 지원하지 않습니다.",
+    error: "설정에 실패했습니다. 잠시 후 다시 시도해 주세요.",
+    note: "교육·연구용 국면 스냅샷만 보냅니다. 투자 권유가 아닙니다.",
   },
   seo: {
     home: {
-      title: "Kostolany Watch — 코스톨라니 6국면 확률 렌즈",
+      title: "코스톨라니 달걀 6국면 | Kostolany Watch",
       description:
-        "코스톨라니 달걀 위 6국면을 확률로 읽는 교육·연구용 도구. 미국·가상화폐, 거시 흐름, 뉴스. 투자 권유가 아닙니다.",
+        "앙드레 코스톨라니 달걀 모형으로 시장 국면(A1–B3)을 확률로 읽는 교육·연구용 도구. 미국·가상화폐, 거시·뉴스 함께 봅니다. 투자 권유가 아닙니다.",
+      ogTitle: "시장이 달걀의 어디쯤인지, 확률로 봅니다",
+      ogDescription: "코스톨라니 6국면 확률 렌즈 · 교육·연구용 국면 인식. 매매 신호가 아닙니다.",
     },
     watch: {
       title: "국면 — 달걀 위 확률",
@@ -219,7 +242,7 @@ export const ko: Messages = {
     zoneLine:
       "위치 — 지금 위치 {regime} 부근 · 실제 칸이 판정 ±1칸 안이었던 날: 실측 {p} (전체 거래일 기준)",
     tieNote: "4대4 동률은 사전 규칙에 따라 상승 레그로 판정합니다",
-    detailTitle: "자세히 — 주장 사다리 (전체 거래일 기준)",
+    detailTitle: "자세히",
     ladderDirection: "① 방향 (상승 레그 vs 하락 레그): 실측 {p}",
     ladderZone: "② 구간 (판정 ±1칸 = 6칸 중 3칸): 실측 {p1} · ±2칸(6칸 중 5칸) {p2}",
     ladderExact:

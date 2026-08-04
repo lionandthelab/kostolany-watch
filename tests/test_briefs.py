@@ -43,21 +43,18 @@ def test_daily_card_save(store: Path) -> None:
     assert len(briefs.list_briefs(kind="daily")) == 1
 
 
-def test_api_briefs_auth(store: Path) -> None:
+def test_api_briefs_read(store: Path) -> None:
+    """Publishing briefs via API was retired with the email newsletter."""
     client = TestClient(create_app())
-    assert client.post("/briefs", json={}).status_code in (401, 422)
-    payload = {
-        "slug": "weekly-2026-08-01",
-        "kind": "weekly",
-        "date": "2026-08-01",
-        "title": {"ko": "테스트", "en": "Test"},
-        "body": {"ko": "<p>본문</p>", "en": "<p>Body</p>"},
-        "dispatch": False,
-    }
-    bad = client.post("/briefs", json=payload)
-    assert bad.status_code == 401
-    ok = client.post("/briefs", json=payload, headers={"X-Cron-Secret": "test-secret"})
-    assert ok.status_code == 200
-    got = client.get("/briefs/weekly-2026-08-01")
+    assert client.post("/briefs", json={}).status_code == 405
+    card = briefs.build_daily_card_from_context(
+        {
+            "markets": [{"label": "US", "regime": "A2", "regime_name": "동행"}],
+            "headlines": [],
+            "priority_summary": "ok",
+        }
+    )
+    briefs.save_brief(card)
+    got = client.get(f"/briefs/{card['slug']}")
     assert got.status_code == 200
-    assert got.json()["title"]["ko"] == "테스트"
+    assert got.json()["kind"] == "daily"

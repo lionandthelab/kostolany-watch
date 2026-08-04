@@ -109,6 +109,7 @@ export type RegimeCalibration = {
   artifact: string;
   confidence_is_calibrated: boolean;
   note_ko: string;
+  momo_floor?: { vote_side?: number; side_median?: number };
 };
 
 export type WatchBundle = {
@@ -395,12 +396,18 @@ export type FlowPoint = { date: string; value: number };
 export type MacroCard = {
   id: string;
   title: string;
+  title_en?: string;
+  title_ko?: string;
   value: number | null;
   unit: string;
   delta?: number | null;
   delta_label?: string;
+  delta_label_en?: string;
+  delta_label_ko?: string;
   series: FlowPoint[];
   blurb?: string;
+  blurb_en?: string;
+  blurb_ko?: string;
   extra?: Record<string, unknown>;
 };
 
@@ -411,17 +418,30 @@ export type MacroBoard = {
   treasury_10y?: number | null;
   fedwatch?: {
     label?: string;
+    label_en?: string;
+    label_ko?: string;
     cut?: number | null;
     hold?: number | null;
     hike?: number | null;
     gap_pp?: number;
     note?: string;
+    note_en?: string;
+    note_ko?: string;
     source?: string;
   };
   fear_greed?: {
     score?: number;
     label?: string;
     series?: FlowPoint[];
+    disclaimer?: string;
+  };
+  crypto_fear_greed?: {
+    score?: number;
+    label?: string;
+    label_en?: string;
+    label_ko?: string;
+    series?: FlowPoint[];
+    source?: string;
     disclaimer?: string;
   };
   disclaimer: string;
@@ -610,35 +630,40 @@ export async function fetchFearGreed(refresh = false): Promise<FearGreedGauge> {
   return fetchJson(`${API}/flows/gauge${q}`, refresh ? 1 : 3);
 }
 
-export type NewsletterSubscribeResult = {
-  ok: boolean;
-  status: string;
-  disclaimer?: string;
-  error?: string;
-};
+export async function fetchVapidPublicKey(): Promise<string | null> {
+  const res = await fetch(`${API}/push/vapid-public-key`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { configured?: boolean; publicKey?: string };
+  if (!data.configured || !data.publicKey) return null;
+  return data.publicKey;
+}
 
-export async function subscribeNewsletter(
-  email: string,
-  opts: { locale?: string; source?: string; website?: string } = {},
-): Promise<NewsletterSubscribeResult> {
-  const res = await fetch(`${API}/newsletter/subscribe`, {
+export async function pushSubscribe(body: {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  hour_kst: number;
+  locale?: string;
+}): Promise<{ status: string }> {
+  const res = await fetch(`${API}/push/subscribe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email,
-      locale: opts.locale ?? "ko",
-      source: opts.source ?? "web",
-      website: opts.website ?? "",
-    }),
+    body: JSON.stringify(body),
   });
-  const data = (await res.json().catch(() => ({}))) as NewsletterSubscribeResult & {
-    detail?: string;
-  };
+  const data = (await res.json().catch(() => ({}))) as { status?: string; detail?: string };
+  if (!res.ok) throw new Error(data.detail || String(res.status));
+  return { status: data.status || "ok" };
+}
+
+export async function pushUnsubscribe(endpoint: string): Promise<void> {
+  const res = await fetch(`${API}/push/unsubscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
   if (!res.ok) {
-    const detail = data.detail || data.error || String(res.status);
-    throw new Error(detail);
+    const data = (await res.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(data.detail || String(res.status));
   }
-  return data;
 }
 
 export type RemoteBrief = {
@@ -679,15 +704,22 @@ export type NewsItem = {
   summary: string;
   source: string;
   theme: string;
+  theme_en?: string;
   theme_ko: string;
   why: string;
+  why_en?: string;
+  why_ko?: string;
   published_at?: string | null;
 };
 
 export type NewsSection = {
   theme: string;
+  label_en?: string;
   label_ko: string;
   why: string;
+  why_en?: string;
+  why_ko?: string;
+  summary_en?: string;
   summary_ko?: string;
   tone?: NewsTone;
   items: NewsItem[];
@@ -699,9 +731,18 @@ export type NewsDesk = {
   stale?: boolean;
   refreshing?: boolean;
   ttl_hours?: number;
-  desk_links: Array<{ title: string; url: string; theme: string; source: string }>;
+  desk_links: Array<{
+    title: string;
+    title_en?: string;
+    title_ko?: string;
+    url: string;
+    theme: string;
+    source: string;
+  }>;
   sections: NewsSection[];
   items: NewsItem[];
   priority_summary_md?: string;
+  priority_summary_md_ko?: string;
   disclaimer: string;
+  disclaimer_ko?: string;
 };

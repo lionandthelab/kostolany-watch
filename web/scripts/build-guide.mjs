@@ -44,88 +44,25 @@ function pageCss() {
     article { background:rgba(255,255,255,0.45); border:1px solid var(--line); border-radius:14px; padding:1.25rem 1.35rem 1.5rem; }
     .cta { display:inline-block; margin-top:1rem; padding:0.55rem 1rem; border-radius:10px; background:var(--moss); color:#fff !important; text-decoration:none; font-weight:600; }
     ul { padding-left: 1.2rem; }
-    .newsletter { margin:1.5rem 0; padding:1rem 1.1rem; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,0.35); }
-    .newsletter h2 { margin:0; font-size:1.15rem; }
-    .newsletter .lead { margin:0.35rem 0 0.75rem; color:var(--muted); font-size:0.92rem; }
-    .newsletter form { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; }
-    .newsletter input[type=email] { flex:1 1 14rem; min-width:12rem; padding:0.55rem 0.7rem; border:1px solid var(--line); border-radius:10px; font:inherit; }
-    .newsletter button { padding:0.55rem 1rem; border:0; border-radius:10px; background:var(--moss); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
-    .newsletter .note { margin:0.65rem 0 0; color:var(--muted); font-size:0.82rem; }
-    .newsletter .msg { margin:0.55rem 0 0; font-size:0.9rem; color:var(--moss); }
-    .newsletter .err { margin:0.55rem 0 0; font-size:0.9rem; color:#8a3a2a; }
+    .push-cta { margin:1.5rem 0; padding:1rem 1.1rem; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,0.35); }
+    .push-cta h2 { margin:0; font-size:1.15rem; }
+    .push-cta .lead { margin:0.35rem 0 0.75rem; color:var(--muted); font-size:0.92rem; }
   `;
 }
 
-function newsletterBlock(lang, source) {
+function pushCtaBlock(lang) {
   const ko = lang !== "en";
-  const title = ko ? "주간 브리핑 이메일" : "Weekly brief by email";
+  const title = ko ? "일일 국면 알림" : "Daily regime alerts";
   const lead = ko
-    ? "새 주간 국면 브리핑이 올라가면 알려 드립니다. 매매 신호가 아닙니다."
-    : "Get a note when a new weekly regime brief goes live. Not a trade signal.";
-  const placeholder = "you@example.com";
-  const submit = ko ? "신청하기" : "Subscribe";
-  const note = ko
-    ? "교육·연구용 안내만 보내며 투자 권유가 아닙니다."
-    : "Educational updates only — not investment advice.";
+    ? "브라우저 푸시로 매일 국면 지표를 받을 수 있습니다. 앱 가이드에서 켜 주세요."
+    : "Get a daily regime ping via browser push — enable it in the Guide app.";
+  const link = ko ? "알림 설정 열기" : "Open alert settings";
   return `
-    <section class="newsletter" data-nl-source="${escapeHtml(source)}">
+    <section class="push-cta">
       <h2>${title}</h2>
       <p class="lead">${lead}</p>
-      <form class="nl-form">
-        <input type="email" name="email" required autocomplete="email" placeholder="${placeholder}" />
-        <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;opacity:0;height:0;width:0" />
-        <button type="submit">${submit}</button>
-      </form>
-      <p class="msg" hidden></p>
-      <p class="err" hidden></p>
-      <p class="note">${note}</p>
+      <p><a class="cta" href="/guide/">${link}</a></p>
     </section>`;
-}
-
-function newsletterScript(lang) {
-  const ko = lang !== "en";
-  const ok = ko
-    ? "신청되었습니다. 확인 메일과 매주 금요일 브리핑을 보내 드립니다."
-    : "You're on the list. You'll get a welcome note and Friday weekly briefs.";
-  const already = ko ? "이미 신청된 이메일입니다." : "This email is already subscribed.";
-  const fail = ko ? "신청에 실패했습니다. 잠시 후 다시 시도해 주세요." : "Could not subscribe. Please try again.";
-  return `
-<script>
-(function(){
-  var locale = ${JSON.stringify(ko ? "ko" : "en")};
-  document.querySelectorAll(".newsletter").forEach(function(box){
-    var form = box.querySelector(".nl-form");
-    if (!form) return;
-    var msg = box.querySelector(".msg");
-    var err = box.querySelector(".err");
-    form.addEventListener("submit", async function(e){
-      e.preventDefault();
-      msg.hidden = true; err.hidden = true;
-      var fd = new FormData(form);
-      try {
-        var res = await fetch("/api/newsletter/subscribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: fd.get("email"),
-            locale: locale,
-            source: box.getAttribute("data-nl-source") || "guide-static",
-            website: fd.get("website") || ""
-          })
-        });
-        var data = await res.json().catch(function(){ return {}; });
-        if (!res.ok) throw new Error(data.detail || "fail");
-        msg.textContent = data.status === "already" ? ${JSON.stringify(already)} : ${JSON.stringify(ok)};
-        msg.hidden = false;
-        form.reset();
-      } catch (ex) {
-        err.textContent = ${JSON.stringify(fail)};
-        err.hidden = false;
-      }
-    });
-  });
-})();
-</script>`;
 }
 
 function writeArticle(article, lang) {
@@ -167,7 +104,7 @@ function writeArticle(article, lang) {
       <p class="meta">${lang === "en" ? "Updated" : "업데이트"} ${escapeHtml(article.date)}</p>
       ${bodyHtml}
       <p><a class="cta" href="/watch">${lang === "en" ? "Open regime view" : "국면 보기"}</a></p>
-      ${newsletterBlock(lang, `guide-static:${article.slug}`)}
+      ${pushCtaBlock(lang)}
     </article>
   </div>
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-XC1KSGMXTX"></script>
@@ -177,7 +114,6 @@ function writeArticle(article, lang) {
     gtag('js', new Date());
     gtag('config', 'G-XC1KSGMXTX', { page_path: location.pathname });
   </script>
-  ${newsletterScript(lang)}
 </body>
 </html>`;
   const outDir = join(root, "public/guide", article.slug);

@@ -18,8 +18,8 @@ export const EGG = {
   cy: 235,
   rx: 128,
   ry: 172,
-  labelRx: 158,
-  labelRy: 208,
+  labelRx: 176,
+  labelRy: 226,
 };
 
 export function pointOnRim(angle: number, rx = EGG.rx, ry = EGG.ry) {

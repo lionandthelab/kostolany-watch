@@ -45,6 +45,8 @@ export type Messages = {
     close: string;
     asof: string;
     loadFailed: string;
+    /** Full educational disclaimer shown under live desks. */
+    disclaimer: string;
   };
   watch: {
     confidence: string;
@@ -69,7 +71,10 @@ export type Messages = {
       participation: string;
       money: string;
       sentiment: string;
+      position: string;
     };
+    /** Calibration footnote; slots: window, n, exact, chance, eceLo, eceHi, sidePct */
+    calibrationNote: string;
   };
   macro: {
     title: string;
@@ -91,6 +96,21 @@ export type Messages = {
     official: string;
     toneGuard: string;
     toneEase: string;
+    themeLabels: {
+      money: string;
+      credit: string;
+      crypto: string;
+      korea: string;
+      sentiment: string;
+    };
+    /** Tone meter labels by score band. */
+    toneLabels: {
+      easeStrong: string;
+      easeSoft: string;
+      mixed: string;
+      guardSoft: string;
+      guardStrong: string;
+    };
   };
   landing: {
     headline: string;
@@ -112,23 +132,30 @@ export type Messages = {
     back: string;
     cadence: string;
     rss: string;
+    missingLocale: string;
   };
-  newsletter: {
+  push: {
     title: string;
     lead: string;
-    emailLabel: string;
-    placeholder: string;
-    submit: string;
-    submitting: string;
+    hourLabel: string;
+    enable: string;
+    disable: string;
+    busy: string;
     success: string;
-    already: string;
-    invalid: string;
-    rateLimited: string;
+    off: string;
+    denied: string;
+    unavailable: string;
+    unsupported: string;
     error: string;
     note: string;
   };
   seo: {
-    home: { title: string; description: string };
+    home: {
+      title: string;
+      description: string;
+      ogTitle: string;
+      ogDescription: string;
+    };
     watch: { title: string; description: string };
     macro: { title: string; description: string };
     news: { title: string; description: string };

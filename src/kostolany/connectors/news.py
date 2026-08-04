@@ -1,4 +1,4 @@
-"""Macro desk news — RSS aggregation for rates, credit, Korea, sentiment."""
+"""Macro desk news — English-first RSS for US rates, credit, crypto, sentiment."""
 
 from __future__ import annotations
 
@@ -21,16 +21,35 @@ NEWS_TTL_HOURS = 2.0
 _news_refresh_lock = threading.Lock()
 _news_refreshing = False
 
-# Themes map to Kostolany gauges users already know
+# Themes map to Kostolany gauges users already know (EN source of truth, KO translation).
 THEMES = {
-    "money": {"label_ko": "돈·금리", "why": "유동성·기준금리·수익률 곡선 — money 게이지와 직결"},
-    "credit": {"label_ko": "신용·위험", "why": "스프레드·은행·디폴트 압력 — credit 축 읽기"},
-    "crypto": {"label_ko": "가상화폐", "why": "비트코인·이더·온체인·규제 — BTC-USD 국면 맥락"},
-    "korea": {"label_ko": "한국 시장", "why": "한은·수급·코스피 — KS11 국면 해석의 현지 맥락"},
-    "sentiment": {"label_ko": "심리·위험선호", "why": "공포·위험선호·지정학 — sentiment 게이지 보강"},
+    "money": {
+        "label_en": "Money & rates",
+        "label_ko": "돈·금리",
+        "why_en": "Liquidity, policy rates, and the yield curve — ties directly to the money gauge.",
+        "why_ko": "유동성·기준금리·수익률 곡선 — money 게이지와 직결",
+    },
+    "credit": {
+        "label_en": "Credit & risk",
+        "label_ko": "신용·위험",
+        "why_en": "Spreads, banks, and default pressure — reading the credit axis.",
+        "why_ko": "스프레드·은행·디폴트 압력 — credit 축 읽기",
+    },
+    "crypto": {
+        "label_en": "Crypto",
+        "label_ko": "가상화폐",
+        "why_en": "Bitcoin, Ethereum, on-chain flows, and regulation — context for BTC-USD regimes.",
+        "why_ko": "비트코인·이더·온체인·규제 — BTC-USD 국면 맥락",
+    },
+    "sentiment": {
+        "label_en": "Sentiment & risk appetite",
+        "label_ko": "심리·위험선호",
+        "why_en": "Fear, risk appetite, and geopolitics — complements the sentiment gauge.",
+        "why_ko": "공포·위험선호·지정학 — sentiment 게이지 보강",
+    },
 }
 
-# Official desks first (stable anchors), then Google News RSS queries
+# Official desks first (stable anchors), then Google News RSS queries (hl=en-US).
 FEEDS: list[dict[str, str]] = [
     {
         "id": "fed_press",
@@ -75,17 +94,6 @@ FEEDS: list[dict[str, str]] = [
         ),
     },
     {
-        "id": "gn_korea",
-        "theme": "korea",
-        "source": "Google News",
-        "url": (
-            "https://news.google.com/rss/search?q="
-            "%ED%95%9C%EA%B5%AD%EC%9D%80%ED%96%89+%EA%B8%B0%EC%A4%80%EA%B8%88%EB%A6%AC"
-            "+OR+%EC%BD%94%EC%8A%A4%ED%94%BC+OR+%EC%99%B8%EC%9D%B8%EC%88%98%EA%B8%89"
-            "&hl=ko&gl=KR&ceid=KR:ko"
-        ),
-    },
-    {
         "id": "gn_sentiment",
         "theme": "sentiment",
         "source": "Google News",
@@ -99,31 +107,33 @@ FEEDS: list[dict[str, str]] = [
 
 DESK_LINKS: list[dict[str, str]] = [
     {
-        "title": "FOMC 일정·성명 (Federal Reserve)",
+        "title": "FOMC calendar & statements (Federal Reserve)",
+        "title_en": "FOMC calendar & statements (Federal Reserve)",
+        "title_ko": "FOMC 일정·성명 (Federal Reserve)",
         "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
         "theme": "money",
         "source": "Federal Reserve",
     },
     {
-        "title": "한국은행 보도자료",
-        "url": "https://www.bok.or.kr/portal/bbs/B0000188/list.do?menuNo=200759",
-        "theme": "korea",
-        "source": "Bank of Korea",
-    },
-    {
-        "title": "FRED 거시 대시보드",
+        "title": "FRED macro dashboard",
+        "title_en": "FRED macro dashboard",
+        "title_ko": "FRED 거시 대시보드",
         "url": "https://fred.stlouisfed.org/",
         "theme": "money",
         "source": "FRED",
     },
     {
         "title": "CoinDesk Markets",
+        "title_en": "CoinDesk Markets",
+        "title_ko": "CoinDesk Markets",
         "url": "https://www.coindesk.com/markets/",
         "theme": "crypto",
         "source": "CoinDesk",
     },
     {
         "title": "CBOE VIX",
+        "title_en": "CBOE VIX",
+        "title_ko": "CBOE VIX",
         "url": "https://www.cboe.com/tradable_products/vix/",
         "theme": "sentiment",
         "source": "Cboe",
@@ -138,7 +148,7 @@ _NS = {
 
 
 def _cache_path():
-    return get_settings().cache_path / "news_desk.json"
+    return get_settings().cache_path / "news_desk_v2.json"
 
 
 def _strip_html(text: str) -> str:
@@ -209,11 +219,11 @@ def _clean_headline(title: str, url: str, summary: str = "") -> str:
     if low.startswith("http") or "news.google.com/rss/articles" in low or "news.google.com/articles" in low:
         host = urlparse(url).netloc.replace("www.", "") if url else ""
         if host and "news.google" not in host:
-            return f"{host} 헤드라인"
+            return f"{host} headline"
         bit = (summary or "").strip()
         if bit and not bit.lower().startswith("http"):
             return bit[:100] + ("…" if len(bit) > 100 else "")
-        return "헤드라인"
+        return "Headline"
     if len(t) > 180:
         return t[:177].rstrip() + "…"
     return t
@@ -302,8 +312,11 @@ def _fetch_feed(feed: dict[str, str], client: httpx.Client) -> list[dict[str, An
                 "summary": it["summary"],
                 "source": it["source_hint"] or feed["source"],
                 "theme": theme,
+                "theme_en": meta["label_en"],
                 "theme_ko": meta["label_ko"],
-                "why": meta["why"],
+                "why": meta["why_en"],
+                "why_en": meta["why_en"],
+                "why_ko": meta["why_ko"],
                 "published_at": it["published_at"],
                 "published_epoch": it["published_epoch"],
                 "feed_id": feed["id"],
@@ -330,7 +343,6 @@ _FEED_PRIORITY = {
     "gn_rates": 70,
     "gn_credit": 65,
     "gn_crypto": 68,
-    "gn_korea": 75,
     "gn_sentiment": 55,
 }
 
@@ -338,7 +350,6 @@ _THEME_PRIORITY = {
     "money": 40,
     "credit": 30,
     "crypto": 32,
-    "korea": 35,
     "sentiment": 15,
 }
 
@@ -355,8 +366,6 @@ def _item_importance(it: dict[str, Any]) -> float:
         ("rate", 8),
         ("fomc", 12),
         ("fed", 6),
-        ("금리", 10),
-        ("한은", 10),
         ("default", 8),
         ("spread", 6),
         ("bitcoin", 10),
@@ -364,11 +373,7 @@ def _item_importance(it: dict[str, Any]) -> float:
         ("ethereum", 8),
         ("crypto", 8),
         ("etf", 5),
-        ("비트코인", 10),
-        ("가상화폐", 8),
-        ("암호화폐", 8),
         ("recession", 7),
-        ("전쟁", 6),
         ("war", 5),
     ):
         if kw in title:
@@ -389,13 +394,6 @@ _TONE_BULL = (
     "risk-on",
     "risk on",
     "rebound",
-    "인하",
-    "완화",
-    "상승",
-    "호조",
-    "강세",
-    "반등",
-    "유동성",
 )
 _TONE_BEAR = (
     "hike",
@@ -411,15 +409,6 @@ _TONE_BEAR = (
     "war",
     "stress",
     "tightening",
-    "인상",
-    "긴축",
-    "침체",
-    "하락",
-    "약세",
-    "공포",
-    "전쟁",
-    "디폴트",
-    "부실",
 )
 
 
@@ -431,7 +420,7 @@ def _tone_hits(text: str) -> tuple[int, int]:
 
 
 def score_section_tone(items: list[dict[str, Any]]) -> dict[str, Any]:
-    """Return -1..+1 tone score plus a short Korean label."""
+    """Return -1..+1 tone score plus a short English label."""
     bull = bear = 0
     for it in items:
         b, r = _tone_hits(f"{it.get('title') or ''} {it.get('summary') or ''}")
@@ -444,15 +433,15 @@ def score_section_tone(items: list[dict[str, Any]]) -> dict[str, Any]:
         score = (bull - bear) / float(total)
     score = float(max(-1.0, min(1.0, score)))
     if score >= 0.35:
-        label = "완화·위험선호 쪽"
+        label = "Easing / risk-on tilt"
     elif score <= -0.35:
-        label = "경계·위험회피 쪽"
+        label = "Caution / risk-off tilt"
     elif abs(score) < 0.12:
-        label = "혼조·중립"
+        label = "Mixed / neutral"
     elif score > 0:
-        label = "약한 완화 기조"
+        label = "Mild easing tone"
     else:
-        label = "약한 경계 기조"
+        label = "Mild caution tone"
     return {
         "score": round(score, 3),
         "label": label,
@@ -462,33 +451,53 @@ def score_section_tone(items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def build_section_summary_ko(items: list[dict[str, Any]], *, label_ko: str, why: str) -> str:
+def build_section_summary_en(items: list[dict[str, Any]], *, label_en: str, why_en: str) -> str:
+    """One short prose line from top headlines (no LLM)."""
+    if not items:
+        return f"{label_en}: No headlines collected."
+    ranked = sorted(items, key=_item_importance, reverse=True)[:3]
+    titles = [str(it.get("title") or "").strip() for it in ranked if str(it.get("title") or "").strip()]
+    if not titles:
+        return f"{label_en}: {why_en}"
+    joined = " · ".join(titles)
+    if len(joined) > 150:
+        joined = joined[:147].rstrip() + "…"
+    return f"{why_en} Headlines in focus: {joined}."
+
+
+def build_section_summary_ko(items: list[dict[str, Any]], *, label_ko: str, why_ko: str) -> str:
     """One short prose line from top headlines (no LLM)."""
     if not items:
         return f"{label_ko}: 수집된 헤드라인이 없습니다."
     ranked = sorted(items, key=_item_importance, reverse=True)[:3]
     titles = [str(it.get("title") or "").strip() for it in ranked if str(it.get("title") or "").strip()]
     if not titles:
-        return f"{label_ko}: {why}"
+        return f"{label_ko}: {why_ko}"
     joined = " · ".join(titles)
     if len(joined) > 150:
         joined = joined[:147].rstrip() + "…"
-    return f"{why} 지금 눈에 띄는 소식은 {joined}."
+    return f"{why_ko} 지금 눈에 띄는 소식은 {joined}."
 
 
 def enrich_section(theme: str, meta: dict[str, str], items: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "theme": theme,
+        "label_en": meta["label_en"],
         "label_ko": meta["label_ko"],
-        "why": meta["why"],
-        "summary_ko": build_section_summary_ko(items, label_ko=meta["label_ko"], why=meta["why"]),
+        "why_en": meta["why_en"],
+        "why_ko": meta["why_ko"],
+        "summary_en": build_section_summary_en(
+            items, label_en=meta["label_en"], why_en=meta["why_en"]
+        ),
+        "summary_ko": build_section_summary_ko(
+            items, label_ko=meta["label_ko"], why_ko=meta["why_ko"]
+        ),
         "tone": score_section_tone(items),
         "items": items,
     }
 
 
-def build_priority_summary_md(items: list[dict[str, Any]], *, limit: int = 8) -> str:
-    """Bullet briefing: importance-ranked, max 2 per theme."""
+def _pick_priority_items(items: list[dict[str, Any]], *, limit: int = 8) -> list[dict[str, Any]]:
     ranked = sorted(items, key=_item_importance, reverse=True)
     picked: list[dict[str, Any]] = []
     theme_counts: dict[str, int] = {}
@@ -500,6 +509,31 @@ def build_priority_summary_md(items: list[dict[str, Any]], *, limit: int = 8) ->
         theme_counts[theme] = theme_counts.get(theme, 0) + 1
         if len(picked) >= limit:
             break
+    return picked
+
+
+def build_priority_summary_md(items: list[dict[str, Any]], *, limit: int = 8) -> str:
+    """English bullet briefing: importance-ranked, max 2 per theme."""
+    picked = _pick_priority_items(items, limit=limit)
+
+    lines = ["## Today's highlights", ""]
+    if not picked:
+        lines.append("- No headlines collected. Try refreshing.")
+        return "\n".join(lines)
+
+    for it in picked:
+        theme_en = it.get("theme_en") or THEMES.get(str(it.get("theme")), {}).get("label_en", "")
+        title = _clean_headline(str(it.get("title") or ""), str(it.get("url") or ""), str(it.get("summary") or ""))
+        source = str(it.get("source") or "").strip()
+        url = str(it.get("url") or "").strip()
+        bit = f"- **[{theme_en}]** {source} — [{title}]({url})" if url else f"- **[{theme_en}]** {source} — {title}"
+        lines.append(bit)
+    return "\n".join(lines)
+
+
+def build_priority_summary_md_ko(items: list[dict[str, Any]], *, limit: int = 8) -> str:
+    """Korean bullet briefing: importance-ranked, max 2 per theme."""
+    picked = _pick_priority_items(items, limit=limit)
 
     lines = ["## 오늘 핵심", ""]
     if not picked:
@@ -514,6 +548,16 @@ def build_priority_summary_md(items: list[dict[str, Any]], *, limit: int = 8) ->
         bit = f"- **[{theme_ko}]** {source} — [{title}]({url})" if url else f"- **[{theme_ko}]** {source} — {title}"
         lines.append(bit)
     return "\n".join(lines)
+
+
+def _theme_meta_from_section(sec: dict[str, Any], theme: str) -> dict[str, str]:
+    base = THEMES.get(theme, {})
+    return {
+        "label_en": str(sec.get("label_en") or base.get("label_en") or theme),
+        "label_ko": str(sec.get("label_ko") or base.get("label_ko") or theme),
+        "why_en": str(sec.get("why_en") or base.get("why_en") or sec.get("why") or ""),
+        "why_ko": str(sec.get("why_ko") or base.get("why_ko") or ""),
+    }
 
 
 def _read_news_cache() -> dict[str, Any] | None:
@@ -531,11 +575,8 @@ def _read_news_cache() -> dict[str, Any] | None:
     out["cached"] = True
     out["stale"] = age_h > NEWS_TTL_HOURS
     out["cache_age_hours"] = round(age_h, 3)
-    if not out.get("priority_summary_md"):
-        out["priority_summary_md"] = build_priority_summary_md(out["items"])
-    else:
-        # Rebuild brief so cached URL-as-title rows cannot blow the layout.
-        out["priority_summary_md"] = build_priority_summary_md(out["items"])
+    out["priority_summary_md"] = build_priority_summary_md(out["items"])
+    out["priority_summary_md_ko"] = build_priority_summary_md_ko(out["items"])
     # Backfill section briefs/tone for older caches
     sections = out.get("sections")
     if isinstance(sections, list):
@@ -545,12 +586,14 @@ def _read_news_cache() -> dict[str, Any] | None:
                 continue
             items = list(sec.get("items") or [])
             theme = str(sec.get("theme") or "")
-            meta = THEMES.get(theme, {"label_ko": sec.get("label_ko") or theme, "why": sec.get("why") or ""})
-            if not sec.get("summary_ko") or not isinstance(sec.get("tone"), dict):
+            meta = _theme_meta_from_section(sec, theme)
+            if not sec.get("summary_en") or not sec.get("summary_ko") or not isinstance(sec.get("tone"), dict):
                 enriched = enrich_section(theme, meta, items)
-                sec = {**sec, "summary_ko": enriched["summary_ko"], "tone": enriched["tone"]}
+                sec = {**sec, **{k: enriched[k] for k in enriched if k != "items"}}
             fixed.append(sec)
         out["sections"] = fixed
+    if not out.get("disclaimer_ko"):
+        out["disclaimer_ko"] = "참고용 헤드라인입니다. 투자 권유가 아닙니다."
     return out
 
 
@@ -616,6 +659,7 @@ def _compute_news_desk(*, per_theme: int = 6) -> dict[str, Any]:
 
     brief_pool = [it for theme_items in by_theme.values() for it in theme_items]
     priority_md = build_priority_summary_md(brief_pool)
+    priority_md_ko = build_priority_summary_md_ko(brief_pool)
 
     def _public_item(it: dict[str, Any]) -> dict[str, Any]:
         return {k: v for k, v in it.items() if k not in ("published_epoch", "feed_id")}
@@ -635,7 +679,9 @@ def _compute_news_desk(*, per_theme: int = 6) -> dict[str, Any]:
         "sections": sections,
         "items": [it for sec in sections for it in sec["items"]],
         "priority_summary_md": priority_md,
-        "disclaimer": "참고용 헤드라인입니다. 투자 권유가 아닙니다.",
+        "priority_summary_md_ko": priority_md_ko,
+        "disclaimer": "Headlines for context only. Not investment advice.",
+        "disclaimer_ko": "참고용 헤드라인입니다. 투자 권유가 아닙니다.",
     }
     try:
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")

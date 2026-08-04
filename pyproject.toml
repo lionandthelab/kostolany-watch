@@ -27,6 +27,8 @@ dependencies = [
   "typer>=0.12",
   "pyarrow>=15.0",
   "google-cloud-storage>=2.14",
+  "pywebpush>=2.0",
+  "py-vapid>=1.9",
 ]
 
 [project.optional-dependencies]

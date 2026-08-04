@@ -15,7 +15,7 @@ from kostolany.settings import get_settings
 log = logging.getLogger(__name__)
 
 BOARD_TTL_HOURS = 6.0
-_CACHE = "macro_board_v1.json"
+_CACHE = "macro_board_v5.json"
 
 # Extra FRED series for the desk (beyond engine feature panel)
 BOARD_FRED = {
@@ -26,6 +26,8 @@ BOARD_FRED = {
     "PAYEMS": "payrolls",
     "DGS10": "treasury_10y",
     "DGS2": "treasury_2y",
+    "BAMLH0A0HYM2": "hy_oas",
+    "T10YIE": "breakeven_10y",
 }
 
 
@@ -68,18 +70,28 @@ def _fetch_fred_board(start: str) -> pd.DataFrame:
     return pd.DataFrame(cols).sort_index()
 
 
-def _yahoo_board(start: str) -> pd.DataFrame:
+def _yahoo_series(ticker: str, *, start: str | None = None, period: str | None = None) -> pd.Series:
     import yfinance as yf
 
+    hist = (
+        yf.Ticker(ticker).history(start=start, auto_adjust=True)
+        if start
+        else yf.Ticker(ticker).history(period=period or "18mo", auto_adjust=True)
+    )
+    if hist.empty:
+        return pd.Series(dtype=float)
+    s = hist["Close"].astype(float)
+    s.index = pd.to_datetime(s.index).tz_localize(None)
+    return s.sort_index()
+
+
+def _yahoo_board(start: str) -> pd.DataFrame:
     frames: dict[str, pd.Series] = {}
     for t, name in (("^IRX", "fed_funds"), ("^TNX", "treasury_10y"), ("^FVX", "treasury_5y")):
         try:
-            hist = yf.Ticker(t).history(start=start, auto_adjust=True)
-            if hist.empty:
-                continue
-            s = hist["Close"].astype(float)
-            s.index = pd.to_datetime(s.index).tz_localize(None)
-            frames[name] = s
+            s = _yahoo_series(t, start=start)
+            if not s.empty:
+                frames[name] = s
         except Exception:  # noqa: BLE001
             continue
     if not frames:
@@ -91,6 +103,24 @@ def _yahoo_board(start: str) -> pd.DataFrame:
     return df
 
 
+def _market_extras(start: str) -> dict[str, pd.Series]:
+    """Risk / dollar / crypto panels from Yahoo (best-effort)."""
+    out: dict[str, pd.Series] = {}
+    for t, name in (
+        ("^VIX", "vix"),
+        ("DX-Y.NYB", "dxy"),
+        ("BTC-USD", "btc"),
+        ("GC=F", "gold"),
+    ):
+        try:
+            s = _yahoo_series(t, start=start)
+            if not s.empty:
+                out[name] = s
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Yahoo extra %s failed: %s", t, exc)
+    return out
+
+
 def _fedwatch_proxy(fed_funds: float | None, irx: float | None) -> dict[str, Any]:
     """Educational stand-in: bill yield vs fed funds → cut / hold / hike bias.
 
@@ -98,12 +128,16 @@ def _fedwatch_proxy(fed_funds: float | None, irx: float | None) -> dict[str, Any
     """
     if fed_funds is None or irx is None or not np.isfinite(fed_funds) or not np.isfinite(irx):
         return {
-            "label": "데이터 부족",
+            "label": "Insufficient data",
+            "label_en": "Insufficient data",
+            "label_ko": "데이터 부족",
             "cut": None,
             "hold": None,
             "hike": None,
             "source": "proxy",
-            "note": "CME FedWatch 공식 확률이 아닙니다. 단기금리·기준금리 괴리 근사치입니다.",
+            "note": "Educational proxy only — not official CME FedWatch probabilities.",
+            "note_en": "Educational proxy only — not official CME FedWatch probabilities.",
+            "note_ko": "CME FedWatch 공식 확률이 아닙니다. 단기금리·기준금리 괴리 근사치입니다.",
         }
     # IRX is discount %; treat as short-rate proxy in same units as FEDFUNDS
     gap = float(irx) - float(fed_funds)  # negative → market prices easier policy
@@ -114,19 +148,23 @@ def _fedwatch_proxy(fed_funds: float | None, irx: float | None) -> dict[str, Any
     total = cut + hold + hike
     cut, hold, hike = cut / total, hold / total, hike / total
     if cut >= hold and cut >= hike:
-        label = "인하 쪽 기운"
+        label_en, label_ko = "Cut bias", "인하 쪽 기운"
     elif hike >= hold and hike >= cut:
-        label = "인상 쪽 기운"
+        label_en, label_ko = "Hike bias", "인상 쪽 기운"
     else:
-        label = "동결 쪽 기운"
+        label_en, label_ko = "Hold bias", "동결 쪽 기운"
     return {
-        "label": label,
+        "label": label_en,
+        "label_en": label_en,
+        "label_ko": label_ko,
         "cut": round(cut * 100, 1),
         "hold": round(hold * 100, 1),
         "hike": round(hike * 100, 1),
         "gap_pp": round(gap, 3),
         "source": "IRX vs FEDFUNDS proxy",
-        "note": "교육용 근사치입니다. CME FedWatch 공식 확률이 아닙니다.",
+        "note": "Educational proxy only — not official CME FedWatch probabilities.",
+        "note_en": "Educational proxy only — not official CME FedWatch probabilities.",
+        "note_ko": "교육용 근사치입니다. CME FedWatch 공식 확률이 아닙니다.",
     }
 
 
@@ -146,85 +184,260 @@ def compute_macro_board() -> dict[str, Any]:
     cpi = raw["cpi"].dropna() if "cpi" in raw else pd.Series(dtype=float)
     unrate = raw["unemployment"].dropna() if "unemployment" in raw else pd.Series(dtype=float)
     payrolls = raw["payrolls"].dropna() if "payrolls" in raw else pd.Series(dtype=float)
+    hy = raw["hy_oas"].dropna() if "hy_oas" in raw else pd.Series(dtype=float)
+    bei = raw["breakeven_10y"].dropna() if "breakeven_10y" in raw else pd.Series(dtype=float)
 
     cpi_yoy = _yoy(cpi) if not cpi.empty else pd.Series(dtype=float)
     payrolls_chg = payrolls.diff() if not payrolls.empty else pd.Series(dtype=float)
+    extras = _market_extras(start)
+    vix = extras.get("vix", pd.Series(dtype=float))
+    dxy = extras.get("dxy", pd.Series(dtype=float))
+    btc = extras.get("btc", pd.Series(dtype=float))
+    gold = extras.get("gold", pd.Series(dtype=float))
 
     # Short-rate proxy for FedWatch: prefer IRX from Yahoo if available
     irx_last = None
     try:
-        import yfinance as yf
-
-        irx = yf.Ticker("^IRX").history(period="3mo", auto_adjust=True)["Close"].astype(float)
+        irx = _yahoo_series("^IRX", period="3mo")
         if not irx.empty:
             irx_last = float(irx.iloc[-1])
     except Exception:  # noqa: BLE001
         irx_last = _last(fed)
 
+    from kostolany.crypto_fear_greed import get_crypto_fear_greed
     from kostolany.fear_greed import get_fear_greed
 
     fg = get_fear_greed(force=False)
+    cfg = get_crypto_fear_greed(force=False)
 
     fed_last = _last(fed)
+    t10_last = _last(t10)
+    btc_last = _last(btc)
+    gold_last = _last(gold)
+
+    def _pct_chg(s: pd.Series, n: int = 20) -> float | None:
+        s = s.dropna()
+        if len(s) <= n:
+            return None
+        a, b = float(s.iloc[-1]), float(s.iloc[-1 - n])
+        if b == 0 or not np.isfinite(a) or not np.isfinite(b):
+            return None
+        return round((a / b - 1.0) * 100.0, 2)
+
     cards = [
         {
             "id": "rates",
-            "title": "기준금리",
+            "title": "Policy rate",
+            "title_en": "Policy rate",
+            "title_ko": "기준금리",
             "value": fed_last,
             "unit": "%",
             "delta": None
             if fed_last is None or len(fed) < 2
             else round(fed_last - float(fed.iloc[-2]), 3),
             "series": _series_points(fed, n=48),
-            "blurb": "FEDFUNDS (또는 단기금리 프록시)",
+            "blurb": "FEDFUNDS (or short-rate proxy)",
+            "blurb_en": "FEDFUNDS (or short-rate proxy)",
+            "blurb_ko": "FEDFUNDS (또는 단기금리 프록시)",
         },
         {
             "id": "curve",
-            "title": "장단기 스프레드",
+            "title": "Yield curve",
+            "title_en": "Yield curve",
+            "title_ko": "장단기 스프레드",
             "value": _last(curve),
             "unit": "%p",
             "delta": None,
             "series": _series_points(curve, n=48),
-            "blurb": "10Y−단기 (T10Y2Y)",
+            "blurb": "10Y − short rate (T10Y2Y)",
+            "blurb_en": "10Y − short rate (T10Y2Y)",
+            "blurb_ko": "10Y−단기 (T10Y2Y)",
+        },
+        {
+            "id": "treasury_10y",
+            "title": "US 10Y yield",
+            "title_en": "US 10Y yield",
+            "title_ko": "미 국채 10년",
+            "value": t10_last,
+            "unit": "%",
+            "delta": None
+            if t10_last is None or len(t10) < 2
+            else round(t10_last - float(t10.iloc[-2]), 3),
+            "series": _series_points(t10, n=48),
+            "blurb": "DGS10 / ^TNX",
+            "blurb_en": "DGS10 / ^TNX",
+            "blurb_ko": "DGS10 / ^TNX",
         },
         {
             "id": "cpi",
-            "title": "물가 (CPI YoY)",
+            "title": "Inflation (CPI YoY)",
+            "title_en": "Inflation (CPI YoY)",
+            "title_ko": "물가 (CPI YoY)",
             "value": _last(cpi_yoy),
             "unit": "%",
             "delta": None,
             "series": _series_points(cpi_yoy.dropna(), n=48),
-            "blurb": "소비자물가 전년동월비",
+            "blurb": "Consumer prices, year-over-year",
+            "blurb_en": "Consumer prices, year-over-year",
+            "blurb_ko": "소비자물가 전년동월비",
+        },
+        {
+            "id": "breakeven",
+            "title": "10Y breakeven",
+            "title_en": "10Y breakeven",
+            "title_ko": "기대 인플레(10Y)",
+            "value": _last(bei),
+            "unit": "%",
+            "delta": None,
+            "series": _series_points(bei, n=48),
+            "blurb": "T10YIE market inflation expectation",
+            "blurb_en": "T10YIE market inflation expectation",
+            "blurb_ko": "T10YIE 시장 기대 인플레이션",
         },
         {
             "id": "jobs",
-            "title": "고용 (실업률)",
+            "title": "Jobs (unemployment)",
+            "title_en": "Jobs (unemployment)",
+            "title_ko": "고용 (실업률)",
             "value": _last(unrate),
             "unit": "%",
             "delta": None
             if _last(payrolls_chg) is None
             else round(float(_last(payrolls_chg) or 0), 0),
-            "delta_label": "비농 증감(천)",
+            "delta_label": "Payrolls chg (k)",
+            "delta_label_en": "Payrolls chg (k)",
+            "delta_label_ko": "비농 증감(천)",
             "series": _series_points(unrate, n=48),
-            "blurb": "UNRATE · PAYEMS 변화",
+            "blurb": "UNRATE · PAYEMS change",
+            "blurb_en": "UNRATE · PAYEMS change",
+            "blurb_ko": "UNRATE · PAYEMS 변화",
+        },
+        {
+            "id": "hy_oas",
+            "title": "HY credit spread",
+            "title_en": "HY credit spread",
+            "title_ko": "하이일드 스프레드",
+            "value": _last(hy),
+            "unit": "%p",
+            "delta": None,
+            "series": _series_points(hy, n=48),
+            "blurb": "ICE BofA US HY OAS",
+            "blurb_en": "ICE BofA US HY OAS",
+            "blurb_ko": "ICE BofA 미국 HY OAS",
+        },
+        {
+            "id": "vix",
+            "title": "VIX",
+            "title_en": "VIX",
+            "title_ko": "VIX",
+            "value": _last(vix),
+            "unit": "",
+            "delta": _pct_chg(vix, 5),
+            "delta_label": "5d %",
+            "delta_label_en": "5d %",
+            "delta_label_ko": "5일 %",
+            "series": _series_points(vix, n=60),
+            "blurb": "Equity vol / fear gauge",
+            "blurb_en": "Equity vol / fear gauge",
+            "blurb_ko": "주식 변동성·공포 게이지",
+        },
+        {
+            "id": "dxy",
+            "title": "US Dollar (DXY)",
+            "title_en": "US Dollar (DXY)",
+            "title_ko": "달러 인덱스",
+            "value": _last(dxy),
+            "unit": "",
+            "delta": _pct_chg(dxy, 20),
+            "delta_label": "20d %",
+            "delta_label_en": "20d %",
+            "delta_label_ko": "20일 %",
+            "series": _series_points(dxy, n=60),
+            "blurb": "DX-Y.NYB",
+            "blurb_en": "DX-Y.NYB",
+            "blurb_ko": "DX-Y.NYB",
+        },
+        {
+            "id": "btc",
+            "title": "Bitcoin",
+            "title_en": "Bitcoin",
+            "title_ko": "비트코인",
+            "value": None if btc_last is None else round(btc_last, 0),
+            "unit": "USD",
+            "delta": _pct_chg(btc, 20),
+            "delta_label": "20d %",
+            "delta_label_en": "20d %",
+            "delta_label_ko": "20일 %",
+            "series": _series_points(btc, n=60),
+            "blurb": "BTC-USD spot",
+            "blurb_en": "BTC-USD spot",
+            "blurb_ko": "BTC-USD 현물",
+        },
+        {
+            "id": "gold",
+            "title": "Gold",
+            "title_en": "Gold",
+            "title_ko": "금",
+            "value": None if gold_last is None else round(gold_last, 1),
+            "unit": "USD",
+            "delta": _pct_chg(gold, 20),
+            "delta_label": "20d %",
+            "delta_label_en": "20d %",
+            "delta_label_ko": "20일 %",
+            "series": _series_points(gold, n=60),
+            "blurb": "GC=F futures",
+            "blurb_en": "GC=F futures",
+            "blurb_ko": "GC=F 선물",
         },
         {
             "id": "fear_greed",
-            "title": "공·탐 지수",
+            "title": "Equity fear & greed",
+            "title_en": "Equity fear & greed",
+            "title_ko": "주식 공·탐",
             "value": fg.get("score"),
             "unit": "",
             "delta": None,
             "series": fg.get("series") or [],
-            "blurb": fg.get("label") or "시장 심리",
-            "extra": {"label": fg.get("label"), "vix": (fg.get("components") or {}).get("vix")},
+            "blurb": fg.get("label_en") or fg.get("label") or "VIX·SPY mood proxy",
+            "blurb_en": fg.get("label_en") or "VIX·SPY mood proxy",
+            "blurb_ko": fg.get("label_ko") or fg.get("label") or "VIX·SPY 심리 근사",
+            "extra": {
+                "label": fg.get("label_en") or fg.get("label"),
+                "label_en": fg.get("label_en"),
+                "label_ko": fg.get("label_ko") or fg.get("label"),
+                "vix": (fg.get("components") or {}).get("vix"),
+            },
+        },
+        {
+            "id": "crypto_fear_greed",
+            "title": "Crypto fear & greed",
+            "title_en": "Crypto fear & greed",
+            "title_ko": "가상화폐 공·탐",
+            "value": cfg.get("score"),
+            "unit": "",
+            "delta": None,
+            "series": cfg.get("series") or [],
+            "blurb": cfg.get("label_en") or "Alternative.me",
+            "blurb_en": cfg.get("label_en") or "Alternative.me",
+            "blurb_ko": cfg.get("label_ko") or "Alternative.me",
+            "extra": {
+                "label": cfg.get("label_en") or cfg.get("label"),
+                "label_en": cfg.get("label_en"),
+                "label_ko": cfg.get("label_ko") or cfg.get("label"),
+                "source": cfg.get("source"),
+                "asof": cfg.get("asof"),
+            },
         },
     ]
+
+    # Drop empty cards (e.g. FRED-only series on Yahoo fallback)
+    cards = [c for c in cards if c.get("value") is not None or (c.get("series") or [])]
 
     return {
         "asof": time.strftime("%Y-%m-%d"),
         "source": source,
         "cards": cards,
-        "treasury_10y": _last(t10),
+        "treasury_10y": t10_last,
         "fedwatch": _fedwatch_proxy(fed_last, irx_last),
         "fear_greed": {
             "score": fg.get("score"),
@@ -232,7 +445,18 @@ def compute_macro_board() -> dict[str, Any]:
             "series": fg.get("series") or [],
             "disclaimer": fg.get("disclaimer"),
         },
-        "disclaimer": "교육·연구용 거시 지표입니다. 투자 권유가 아닙니다.",
+        "crypto_fear_greed": {
+            "score": cfg.get("score"),
+            "label": cfg.get("label"),
+            "label_en": cfg.get("label_en"),
+            "label_ko": cfg.get("label_ko"),
+            "series": cfg.get("series") or [],
+            "source": cfg.get("source"),
+            "disclaimer": cfg.get("disclaimer"),
+        },
+        "disclaimer": "Educational US macro gauges — not investment advice.",
+        "disclaimer_en": "Educational US macro gauges — not investment advice.",
+        "disclaimer_ko": "교육·연구용 거시 지표입니다. 투자 권유가 아닙니다.",
         "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 

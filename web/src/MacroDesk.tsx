@@ -8,16 +8,7 @@ import {
   type FlowPoint,
 } from "./api";
 import MarkdownBrief from "./MarkdownBrief";
-import { useT } from "./i18n";
-import LocaleSwitcher from "./LocaleSwitcher";
-import AdSlot from "./AdSlot";
-
-type Props = {
-  onWatch?: () => void;
-  onAbout?: () => void;
-  onNews?: () => void;
-  onGuide?: () => void;
-};
+import { useLocale, useT } from "./i18n";
 
 const THEME_COLOR: Record<string, string> = {
   money: "#2f5d50",
@@ -57,13 +48,58 @@ function Sparkline({ series, color = "#2f5d50" }: { series: FlowPoint[]; color?:
   );
 }
 
-function MacroCardView({ card }: { card: MacroCard }) {
-  const digits = card.id === "jobs" || card.id === "fear_greed" ? 1 : 2;
+function pickLocaleText(
+  lang: "en" | "ko",
+  localized: string | undefined,
+  fallback: string | undefined,
+): string | undefined {
+  const ok = (s: string | undefined) => {
+    if (!s) return undefined;
+    if (lang === "en" && /[가-힣]/.test(s)) return undefined;
+    return s;
+  };
+  return ok(localized) || ok(fallback);
+}
+
+function cardDigits(id: string): number {
+  if (id === "btc" || id === "jobs") return 0;
+  if (
+    id === "fear_greed" ||
+    id === "crypto_fear_greed" ||
+    id === "vix" ||
+    id === "gold" ||
+    id === "dxy"
+  ) {
+    return 1;
+  }
+  return 2;
+}
+
+function MacroCardView({
+  card,
+  lang,
+  inert = false,
+}: {
+  card: MacroCard;
+  lang: "en" | "ko";
+  /** Duplicate marquee clone — hide from a11y tree */
+  inert?: boolean;
+}) {
+  const digits = cardDigits(card.id);
+  const title =
+    pickLocaleText(lang, lang === "ko" ? card.title_ko : card.title_en, card.title) || card.title;
+  const blurb = pickLocaleText(lang, lang === "ko" ? card.blurb_ko : card.blurb_en, card.blurb);
+  const deltaLabel = pickLocaleText(
+    lang,
+    lang === "ko" ? card.delta_label_ko : card.delta_label_en,
+    card.delta_label,
+  );
+  const deltaDigits = deltaLabel?.includes("%") ? 1 : deltaLabel ? 0 : 2;
   return (
-    <article className="macro-card">
+    <article className="macro-card" aria-hidden={inert || undefined}>
       <header>
-        <h3>{card.title}</h3>
-        <p className="macro-card-blurb">{card.blurb}</p>
+        <h3>{title}</h3>
+        {blurb ? <p className="macro-card-blurb">{blurb}</p> : null}
       </header>
       <div className="macro-card-value">
         <strong>
@@ -72,9 +108,9 @@ function MacroCardView({ card }: { card: MacroCard }) {
         </strong>
         {card.delta != null && (
           <span className="macro-delta">
-            {card.delta_label ? `${card.delta_label} ` : ""}
+            {deltaLabel ? `${deltaLabel} ` : ""}
             {card.delta > 0 ? "+" : ""}
-            {fmtNum(card.delta, card.delta_label ? 0 : 2)}
+            {fmtNum(card.delta, deltaDigits)}
           </span>
         )}
       </div>
@@ -83,8 +119,43 @@ function MacroCardView({ card }: { card: MacroCard }) {
   );
 }
 
-export default function MacroDesk({ onWatch, onAbout, onNews, onGuide }: Props) {
+function MacroCardRail({
+  cards,
+  lang,
+  label,
+}: {
+  cards: MacroCard[];
+  lang: "en" | "ko";
+  label: string;
+}) {
+  // Duplicate once for a seamless CSS loop (translate -50%).
+  const loop = useMemo(() => [...cards, ...cards], [cards]);
+  const durationSec = Math.max(28, cards.length * 5.5);
+  return (
+    <section className="macro-rail fade-up" aria-label={label}>
+      <div className="macro-rail-viewport">
+        <div
+          className="macro-rail-track"
+          style={{ ["--macro-rail-duration" as string]: `${durationSec}s` }}
+        >
+          {loop.map((c, i) => (
+            <MacroCardView
+              key={`${c.id}-${i}`}
+              card={c}
+              lang={lang}
+              inert={i >= cards.length}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default function MacroDesk() {
   const t = useT();
+  const { locale } = useLocale();
+  const lang = locale === "en" ? "en" : "ko";
   const [board, setBoard] = useState<MacroBoard | null>(null);
   const [news, setNews] = useState<NewsDesk | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,49 +186,22 @@ export default function MacroDesk({ onWatch, onAbout, onNews, onGuide }: Props) 
   }, [news]);
 
   return (
-    <div className="page macro-page">
-      <nav className="topnav desk-nav">
-        <div className="desk-tabs" role="tablist" aria-label={t.nav.screens}>
-          <button type="button" className="desk-tab" onClick={onWatch}>
-            {t.nav.regime}
-          </button>
-          <button type="button" className="desk-tab is-active" aria-current="page">
-            {t.nav.macro}
-          </button>
-          {onNews && (
-            <button type="button" className="desk-tab" onClick={onNews}>
-              {t.nav.news}
+    <div className="desk-panel macro-page">
+      <header className="desk-hero fade-up">
+        <div className="desk-hero-row">
+          <h2 className="desk-title">{t.macro.title}</h2>
+          <div className="cache-bar desk-hero-meta">
+            <span className="status">
+              {loading && !board
+                ? t.common.loading
+                : board?.asof
+                  ? `${t.common.asof} ${board.asof}`
+                  : ""}
+            </span>
+            <button type="button" className="btn-refresh" disabled={loading} onClick={() => void load(true)}>
+              {t.common.refresh}
             </button>
-          )}
-          {onGuide && (
-            <button type="button" className="desk-tab" onClick={onGuide}>
-              {t.nav.guide}
-            </button>
-          )}
-        </div>
-        <div className="desk-nav-end">
-          <LocaleSwitcher />
-          {onAbout && (
-            <button type="button" className="nav-quiet nav-btn" onClick={onAbout}>
-              {t.nav.about}
-            </button>
-          )}
-        </div>
-      </nav>
-
-      <header className="news-hero fade-up">
-        <h2 className="section-kicker">{t.macro.title}</h2>
-        <div className="cache-bar">
-          <span className="status">
-            {loading && !board
-              ? t.common.loading
-              : board?.asof
-                ? `${t.common.asof} ${board.asof}`
-                : ""}
-          </span>
-          <button type="button" className="btn-refresh" disabled={loading} onClick={() => void load(true)}>
-            {t.common.refresh}
-          </button>
+          </div>
         </div>
       </header>
 
@@ -174,7 +218,9 @@ export default function MacroDesk({ onWatch, onAbout, onNews, onGuide }: Props) 
         <section className="fedwatch-panel fade-up" aria-label={t.macro.fedwatch}>
           <div className="fedwatch-head">
             <h3>{t.macro.fedwatch}</h3>
-            <strong>{fw.label ?? "—"}</strong>
+            <strong>
+              {(lang === "ko" ? fw.label_ko : fw.label_en) || fw.label || "—"}
+            </strong>
           </div>
           <div className="fedwatch-bars">
             {(
@@ -197,31 +243,29 @@ export default function MacroDesk({ onWatch, onAbout, onNews, onGuide }: Props) 
         </section>
       )}
 
-      <AdSlot className="ad-slot--rail" slot="macro-mid" />
-
       {board && board.cards.length > 0 && (
-        <section className="macro-grid fade-up" aria-label={t.macro.gaugesAria}>
-          {board.cards.map((c) => (
-            <MacroCardView key={c.id} card={c} />
-          ))}
-        </section>
+        <MacroCardRail cards={board.cards} lang={lang} label={t.macro.gaugesAria} />
       )}
 
-      {news?.priority_summary_md && (
-        <section className="briefing-rail fade-up" aria-label={t.macro.briefingAria}>
-          <MarkdownBrief source={news.priority_summary_md} />
-        </section>
-      )}
+      {(() => {
+        const brief =
+          lang === "ko"
+            ? news?.priority_summary_md_ko || news?.priority_summary_md
+            : news?.priority_summary_md || news?.priority_summary_md_ko;
+        return brief ? (
+          <section className="briefing-rail fade-up" aria-label={t.macro.briefingAria}>
+            <MarkdownBrief source={brief} />
+          </section>
+        ) : null;
+      })()}
 
       {headlines.length > 0 && (
         <section className="macro-news fade-up">
           <div className="macro-news-head">
-            <h3 className="news-section-title">{t.macro.headlines}</h3>
-            {onNews && (
-              <button type="button" className="btn-ghost btn-sm" onClick={onNews}>
-                {t.macro.moreNews}
-              </button>
-            )}
+            <h3 className="desk-subtitle">{t.macro.headlines}</h3>
+            <a className="btn-ghost btn-sm" href="/news">
+              {t.macro.moreNews}
+            </a>
           </div>
           <ul className="news-list">
             {headlines.map((it) => (
@@ -232,7 +276,11 @@ export default function MacroDesk({ onWatch, onAbout, onNews, onGuide }: Props) 
                       className="news-theme-dot"
                       style={{ background: THEME_COLOR[it.theme] ?? "#2f5d50" }}
                     />
-                    <span className="news-row-source">{it.theme_ko || it.source}</span>
+                    <span className="news-row-source">
+                      {t.news.themeLabels[it.theme as keyof typeof t.news.themeLabels] ??
+                        (lang === "ko" ? it.theme_ko : it.theme_en) ??
+                        it.source}
+                    </span>
                   </span>
                   <span className="news-row-title">{it.title}</span>
                 </a>
@@ -242,8 +290,7 @@ export default function MacroDesk({ onWatch, onAbout, onNews, onGuide }: Props) 
         </section>
       )}
 
-      {board && <p className="disclaimer">{board.disclaimer}</p>}
-      {news && <p className="disclaimer">{news.disclaimer}</p>}
+      {(board || news) && <p className="disclaimer">{t.common.disclaimer}</p>}
     </div>
   );
 }

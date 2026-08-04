@@ -20,6 +20,8 @@ export const en: Messages = {
     close: "Close",
     asof: "As of",
     loadFailed: "Could not load data.",
+    disclaimer:
+      "This information is educational/research material for regime recognition only — not investment advice or a solicitation. You are solely responsible for investment decisions and any losses.",
   },
   watch: {
     confidence: "Confidence",
@@ -44,7 +46,10 @@ export const en: Messages = {
       participation: "Participation",
       money: "Liquidity",
       sentiment: "Sentiment",
+      position: "Position / trend",
     },
+    calibrationNote:
+      "Walk-forward measure on {window} ({n} bars): exact 6-regime hit rate about {exact} (chance {chance}%), calibration error (ECE) {eceLo}–{eceHi}. The trend-rule head is not a trained model; displayed probabilities are pinned to measured hit rates (up/down hit {sidePct}%). The three AI conviction scores are rank references, not hit probabilities.",
   },
   macro: {
     title: "Macro",
@@ -66,6 +71,20 @@ export const en: Messages = {
     official: "Official desks",
     toneGuard: "Caution",
     toneEase: "Ease",
+    themeLabels: {
+      money: "Money & rates",
+      credit: "Credit & risk",
+      crypto: "Crypto",
+      korea: "Korea market",
+      sentiment: "Sentiment & risk appetite",
+    },
+    toneLabels: {
+      easeStrong: "Easing / risk-on",
+      easeSoft: "Mild easing bias",
+      mixed: "Mixed / neutral",
+      guardSoft: "Mild caution bias",
+      guardStrong: "Caution / risk-off",
+    },
   },
   landing: {
     headline: "See where the market sits on the egg — in probabilities.",
@@ -87,28 +106,33 @@ export const en: Messages = {
     title: "Guide",
     lead: "Egg & six-regime primers plus weekly briefs. Educational — not investment advice.",
     back: "← All guides",
-    cadence: "Weekly Claude briefs + daily auto regime cards.",
+    cadence: "Evergreen guides plus the live regime view.",
     rss: "RSS",
+    missingLocale: "An English version of this article is not available yet.",
   },
-  newsletter: {
-    title: "Weekly brief by email",
-    lead: "Get a note when a new weekly regime brief goes live. Not a trade signal.",
-    emailLabel: "Email",
-    placeholder: "you@example.com",
-    submit: "Subscribe",
-    submitting: "Saving…",
-    success: "You're on the list. You'll get a welcome note and Friday weekly briefs.",
-    already: "This email is already subscribed.",
-    invalid: "Please check the email address.",
-    rateLimited: "Too many requests — try again shortly.",
-    error: "Could not subscribe. Please try again.",
-    note: "Educational updates only — not investment advice. No spam.",
+  push: {
+    title: "Daily regime alerts",
+    lead: "Get a browser ping with US & Bitcoin regime metrics at your chosen KST hour. Not a trade signal.",
+    hourLabel: "Alert time",
+    enable: "Enable alerts",
+    disable: "Disable alerts",
+    busy: "Working…",
+    success: "Alerts on. Keep browser notification permission allowed.",
+    off: "Alerts turned off.",
+    denied: "Notification permission denied. Allow it in browser settings.",
+    unavailable: "Push server is not configured yet.",
+    unsupported: "This browser does not support web push.",
+    error: "Could not update alerts. Try again shortly.",
+    note: "Educational regime snapshots only — not investment advice.",
   },
   seo: {
     home: {
-      title: "Kostolany Watch — six-regime probability lens",
+      title: "Kostolany egg · six regimes | Kostolany Watch",
       description:
-        "Read Kostolany’s six regimes on the egg as probabilities. US & crypto, macro, news. Educational — not investment advice.",
+        "Read André Kostolany’s egg-model regimes (A1–B3) as probabilities. Educational tool for US & crypto, macro, and news. Not investment advice.",
+      ogTitle: "See where the market sits on the egg — in probabilities.",
+      ogDescription:
+        "Kostolany six-regime probability lens · educational regime reading. Not a trading signal.",
     },
     watch: {
       title: "Regime — on the egg",
@@ -219,7 +243,7 @@ export const en: Messages = {
     zoneLine:
       "Position — near {regime} · days the true sector was within ±1 of the call: measured {p} (all trading days)",
     tieNote: "A 4-4 tie resolves to the up leg by pre-registered rule",
-    detailTitle: "Details — claims ladder (all trading days)",
+    detailTitle: "Details",
     ladderDirection: "① Direction (up leg vs down leg): measured {p}",
     ladderZone: "② Zone (call ±1 of 6 sectors): measured {p1} · ±2 (5 of 6) {p2}",
     ladderExact:

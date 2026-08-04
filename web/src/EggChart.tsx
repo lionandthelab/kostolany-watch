@@ -52,10 +52,11 @@ const SIDE_TIER_OPACITY: Record<string, number> = {
 function labelAnchor(angle: number): { dx: number; dy: number; anchor: "start" | "middle" | "end" } {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
-  if (c > 0.35) return { dx: 10, dy: 4, anchor: "start" };
-  if (c < -0.35) return { dx: -10, dy: 4, anchor: "end" };
-  if (s > 0.2) return { dx: 0, dy: -10, anchor: "middle" };
-  return { dx: 0, dy: 16, anchor: "middle" };
+  // Extra outward offset so rim codes clear the shell (esp. left side).
+  if (c > 0.35) return { dx: 16, dy: 4, anchor: "start" };
+  if (c < -0.35) return { dx: -18, dy: 4, anchor: "end" };
+  if (s > 0.2) return { dx: 0, dy: -14, anchor: "middle" };
+  return { dx: 0, dy: 20, anchor: "middle" };
 }
 
 export function EggChart({
@@ -100,7 +101,7 @@ export function EggChart({
   return (
     <svg
       className={`egg-svg${block ? " is-loading" : ""}`}
-      viewBox="0 0 400 480"
+      viewBox="-56 -16 500 512"
       role="img"
       aria-label={aria}
       aria-busy={block || Boolean(pendingLabel)}
@@ -152,6 +153,7 @@ export function EggChart({
           const la = labelAnchor(angle);
           return (
             <g key={code}>
+              <title>{`${code} ${name}`}</title>
               <circle cx={on.x} cy={on.y} r="3.5" fill={guide.color} opacity="0.75" />
               <line
                 x1={on.x}
@@ -165,22 +167,12 @@ export function EggChart({
                 x={outer.x + la.dx}
                 y={outer.y + la.dy}
                 textAnchor={la.anchor}
-                fontSize="12"
+                fontSize="13"
                 fontFamily="Fraunces, Georgia, serif"
                 fontWeight="700"
                 fill={guide.color}
               >
                 {code}
-              </text>
-              <text
-                x={outer.x + la.dx}
-                y={outer.y + la.dy + 14}
-                textAnchor={la.anchor}
-                fontSize="9.5"
-                fontFamily="IBM Plex Sans, sans-serif"
-                fill="rgba(26,31,28,0.5)"
-              >
-                {name}
               </text>
             </g>
           );

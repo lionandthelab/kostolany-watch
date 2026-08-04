@@ -17,3 +17,12 @@ def test_macro_board_has_cards():
     assert "cards" in board
     assert "disclaimer" in board
     assert "fedwatch" in board
+    ids = {c.get("id") for c in board.get("cards") or []}
+    assert "fear_greed" in ids
+    assert "crypto_fear_greed" in ids
+    # Extra market gauges (best-effort; at least a few beyond the core set)
+    extras = ids & {"vix", "dxy", "btc", "gold", "treasury_10y", "hy_oas", "breakeven"}
+    assert len(extras) >= 3
+    crypto = next(c for c in board["cards"] if c["id"] == "crypto_fear_greed")
+    assert crypto.get("value") is not None or crypto.get("series") == []
+    assert len(board["cards"]) >= 8

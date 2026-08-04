@@ -62,16 +62,13 @@ def test_honeypot_silent(store: Path) -> None:
     assert not store.exists()
 
 
-def test_api_subscribe(store: Path) -> None:
+def test_api_subscribe_retired(store: Path) -> None:
     client = TestClient(create_app())
     res = client.post(
         "/newsletter/subscribe",
         json={"email": "reader@example.com", "locale": "ko", "source": "test"},
     )
-    assert res.status_code == 200
-    assert res.json()["status"] == "subscribed"
-    bad = client.post("/newsletter/subscribe", json={"email": "nope", "locale": "ko"})
-    assert bad.status_code == 400
+    assert res.status_code == 410
 
 
 def test_parse_weekly_from_feed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,34 +128,10 @@ def test_dispatch_dry_run(store: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["subscribers"] == 1
 
 
-def test_api_dispatch_auth(store: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_api_dispatch_retired(store: Path) -> None:
     client = TestClient(create_app())
-    assert client.post("/newsletter/dispatch").status_code == 401
-
-    class FakeResp:
-        status_code = 200
-        text = SAMPLE_FEED
-
-        def raise_for_status(self) -> None:
-            return None
-
-    class FakeClient:
-        def __init__(self, *a, **k):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def get(self, url):
-            return FakeResp()
-
-    monkeypatch.setattr(newsletter.httpx, "Client", FakeClient)
-    ok = client.post(
+    assert client.post("/newsletter/dispatch").status_code == 410
+    assert client.post(
         "/newsletter/dispatch?dry_run=true",
         headers={"X-Cron-Secret": "test-secret"},
-    )
-    assert ok.status_code == 200
-    assert ok.json()["status"] == "dry_run"
+    ).status_code == 410

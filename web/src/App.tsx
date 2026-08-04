@@ -4,6 +4,7 @@ import Landing from "./Landing";
 import NewsDesk from "./NewsDesk";
 import WatchApp from "./WatchApp";
 import GuideDesk from "./GuideDesk";
+import DeskShell, { type DeskTab } from "./DeskShell";
 import { trackEvent, trackPageView } from "./analytics";
 import { getArticle } from "./guide/catalog";
 import { useLocale, useT } from "./i18n";
@@ -117,39 +118,6 @@ export default function App() {
     trackPageView(path, document.title);
   }, [mode, guideSlug, t.seo, locale]);
 
-  if (mode === "guide") {
-    return (
-      <GuideDesk
-        slug={guideSlug}
-        onWatch={enterWatch}
-        onMacro={enterMacro}
-        onNews={enterNews}
-        onAbout={enterAbout}
-        onGuideHome={enterGuide}
-        onOpenArticle={openGuideArticle}
-      />
-    );
-  }
-  if (mode === "macro") {
-    return (
-      <MacroDesk
-        onWatch={enterWatch}
-        onAbout={enterAbout}
-        onNews={enterNews}
-        onGuide={enterGuide}
-      />
-    );
-  }
-  if (mode === "news") {
-    return (
-      <NewsDesk
-        onWatch={enterWatch}
-        onMacro={enterMacro}
-        onAbout={enterAbout}
-        onGuide={enterGuide}
-      />
-    );
-  }
   if (mode === "about" || mode === "home") {
     return (
       <Landing
@@ -169,12 +137,33 @@ export default function App() {
       />
     );
   }
+
+  const deskActive: DeskTab =
+    mode === "macro" || mode === "news" || mode === "guide" ? mode : "watch";
+
   return (
-    <WatchApp
+    <DeskShell
+      active={deskActive}
+      onWatch={enterWatch}
       onMacro={enterMacro}
-      onAbout={enterAbout}
       onNews={enterNews}
       onGuide={enterGuide}
-    />
+      onAbout={enterAbout}
+    >
+      {mode === "guide" ? (
+        <GuideDesk
+          slug={guideSlug}
+          onWatch={enterWatch}
+          onGuideHome={enterGuide}
+          onOpenArticle={openGuideArticle}
+        />
+      ) : mode === "macro" ? (
+        <MacroDesk />
+      ) : mode === "news" ? (
+        <NewsDesk />
+      ) : (
+        <WatchApp />
+      )}
+    </DeskShell>
   );
 }

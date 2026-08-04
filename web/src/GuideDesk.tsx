@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import LocaleSwitcher from "./LocaleSwitcher";
-import NewsletterSignup from "./NewsletterSignup";
+import PushOptIn from "./PushOptIn";
 import { fetchBrief, fetchBriefs } from "./api";
 import {
   listArticles,
@@ -14,9 +13,6 @@ import { trackEvent } from "./analytics";
 type Props = {
   slug?: string | null;
   onWatch?: () => void;
-  onMacro?: () => void;
-  onNews?: () => void;
-  onAbout?: () => void;
   onGuideHome?: () => void;
   onOpenArticle?: (slug: string) => void;
 };
@@ -55,9 +51,6 @@ function remoteToArticle(r: {
 export default function GuideDesk({
   slug,
   onWatch,
-  onMacro,
-  onNews,
-  onAbout,
   onGuideHome,
   onOpenArticle,
 }: Props) {
@@ -89,7 +82,8 @@ export default function GuideDesk({
     const preferRemote = /^(weekly|daily)-/.test(slug);
     if (!preferRemote) {
       const local = getArticle(slug);
-      if (local?.body?.ko) {
+      // Prefer local evergreen when the active locale already has a body.
+      if (local?.body?.[lang]) {
         setRemoteArticle(null);
         return;
       }
@@ -103,7 +97,7 @@ export default function GuideDesk({
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, lang]);
 
   const list = mergeArticles(listArticles(), remote);
   const article =
@@ -113,36 +107,11 @@ export default function GuideDesk({
     null;
 
   return (
-    <div className="page guide-page">
-      <nav className="topnav desk-nav">
-        <div className="desk-tabs" role="tablist" aria-label={t.nav.screens}>
-          <button type="button" className="desk-tab" onClick={onWatch}>
-            {t.nav.regime}
-          </button>
-          <button type="button" className="desk-tab" onClick={onMacro}>
-            {t.nav.macro}
-          </button>
-          <button type="button" className="desk-tab" onClick={onNews}>
-            {t.nav.news}
-          </button>
-          <button type="button" className="desk-tab is-active" aria-current="page">
-            {t.nav.guide}
-          </button>
-        </div>
-        <div className="desk-nav-end">
-          <LocaleSwitcher />
-          {onAbout && (
-            <button type="button" className="nav-quiet nav-btn" onClick={onAbout}>
-              {t.nav.about}
-            </button>
-          )}
-        </div>
-      </nav>
-
+    <div className="desk-panel guide-page">
       {!article && (
-        <header className="news-hero fade-up">
-          <h2 className="section-kicker">{t.guide.title}</h2>
-          <p className="guide-lead">{t.guide.lead}</p>
+        <header className="desk-hero fade-up">
+          <h2 className="desk-title">{t.guide.title}</h2>
+          <p className="desk-lead">{t.guide.lead}</p>
           <p className="guide-cadence">
             {t.guide.cadence}{" "}
             <a href="/guide/feed.xml" target="_blank" rel="noreferrer">
@@ -160,11 +129,15 @@ export default function GuideDesk({
           <p className="guide-kicker">
             {kindLabel(article.kind, lang)} · {article.date}
           </p>
-          <h1>{article.title[lang]}</h1>
-          <div
-            className="guide-body"
-            dangerouslySetInnerHTML={{ __html: article.body[lang] || article.body.ko }}
-          />
+          <h1>{article.title[lang] || article.title.en || article.title.ko}</h1>
+          {article.body[lang] ? (
+            <div
+              className="guide-body"
+              dangerouslySetInnerHTML={{ __html: article.body[lang] }}
+            />
+          ) : (
+            <p className="status">{t.guide.missingLocale}</p>
+          )}
           <button
             type="button"
             className="btn-primary"
@@ -175,11 +148,11 @@ export default function GuideDesk({
           >
             {t.landing.ctaWatch}
           </button>
-          <NewsletterSignup source={`guide:${article.slug}`} />
+          <PushOptIn source={`guide:${article.slug}`} />
         </article>
       ) : (
         <>
-          <NewsletterSignup source="guide" />
+          <PushOptIn source="guide" />
           <ul className="guide-list fade-up">
             {list.map((a) => (
               <li key={a.slug}>
@@ -194,8 +167,10 @@ export default function GuideDesk({
                   <span className="guide-list-meta">
                     {kindLabel(a.kind, lang)} · {a.date}
                   </span>
-                  <strong>{a.title[lang]}</strong>
-                  <span className="guide-list-desc">{a.description[lang]}</span>
+                  <strong>{a.title[lang] || a.title.en || a.title.ko}</strong>
+                  <span className="guide-list-desc">
+                    {a.description[lang] || a.description.en || a.description.ko}
+                  </span>
                 </button>
               </li>
             ))}
