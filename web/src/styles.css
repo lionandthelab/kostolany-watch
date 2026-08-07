@@ -788,7 +788,12 @@ button.btn-primary {
 }
 
 .landing-hero {
-  min-height: 100vh;
+  /* A hero worth the fold, but not a full viewport: the copy and the egg come
+     to ~680px, so `100vh` left 220px of centred slack at 900px tall and more on
+     anything bigger — and it pushed "무엇을 하나요" off the fold to buy that.
+     The cap is above the content height, so tall screens still get a generous
+     hero and short ones stop scrolling for nothing. */
+  min-height: min(100vh, 44rem);
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
   gap: 1.25rem;
@@ -1115,11 +1120,17 @@ button.btn-primary {
   margin: 0;
 }
 
+/* No viewport floor here. `.hero` sets one so a landing fills the fold, but the
+   desk is a data screen with nothing below the fold to tease — combined with
+   `align-items: start` the whole surplus collected at the bottom as dead space
+   (measured 149px at 1280x900, and it grows with the viewport) between the
+   disclaimer and the macro board. Let it be as tall as what it shows. */
 .watch-slim .hero-watch {
-  min-height: calc(100vh - 5.5rem);
+  min-height: 0;
   align-items: start;
   gap: 1.5rem 1.75rem;
   padding-top: 0.15rem;
+  padding-bottom: 1.5rem;
 }
 
 .watch-slim .hero-copy {
