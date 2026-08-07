@@ -6,6 +6,13 @@
     <description>코스톨라니 달걀·6국면 해설과 주간 국면 브리핑 (교육·연구용, 투자 권유 아님)</description>
     <language>ko</language>
     <item>
+      <title>VIX 공포지수란 무엇인가 — 숫자가 아니라 기간을 읽어야 하는 이유</title>
+      <link>https://kostolany-watch.web.app/guide/vix-volatility-index/</link>
+      <guid isPermaLink="true">https://kostolany-watch.web.app/guide/vix-volatility-index/</guid>
+      <pubDate>Sat, 08 Aug 2026 00:00:00 GMT</pubDate>
+      <description>VIX가 무엇을 재는 지표인지, 왜 &apos;공포지수&apos;라는 별명이 오해를 부르는지, 그리고 수준보다 기간 구조를 봐야 하는 이유를 정리한 교육용 해설.</description>
+    </item>
+    <item>
       <title>백테스트를 믿으면 안 되는 이유 — 과최적화와 데이터 누수</title>
       <link>https://kostolany-watch.web.app/guide/backtest-traps/</link>
       <guid isPermaLink="true">https://kostolany-watch.web.app/guide/backtest-traps/</guid>
