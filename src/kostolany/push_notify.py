@@ -237,6 +237,53 @@ def _write_all(rows: list[dict[str, Any]], path: Path | None = None) -> None:
     push_blob_async(p, _GCS_SUBS, content_type="application/x-ndjson")
 
 
+def key_defect(keys: Any) -> str:
+    """Why this subscription's keys can never encrypt, or "" if they can.
+
+    A PushSubscription carries `p256dh` (the client's public key) and `auth` (a
+    16-byte secret), both base64url. These are fixed-width by RFC 8291 — there is
+    no version of a valid subscription with a different length — so a row that
+    fails here is dead permanently, not transiently.
+
+    Worth checking structurally rather than by reading exception text: on
+    2026-08-07 a stored FCM row had a 64-byte `p256dh` (86 base64url chars where
+    a point needs 87) and pywebpush surfaced it as a bare `WebPushException:
+    Invalid p256dh key specified` with no HTTP status, so it counted as a
+    transient error and was retried every hour forever.
+    """
+    if not isinstance(keys, dict):
+        return "keys_not_object"
+    raw_p, raw_a = str(keys.get("p256dh") or ""), str(keys.get("auth") or "")
+    if not raw_p or not raw_a:
+        return "keys_missing"
+
+    def _decode(value: str) -> bytes | None:
+        try:
+            return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+        except Exception:  # noqa: BLE001
+            return None
+
+    point, auth = _decode(raw_p), _decode(raw_a)
+    if point is None:
+        return "p256dh_not_base64url"
+    if auth is None:
+        return "auth_not_base64url"
+    # 0x04 || X(32) || Y(32); the compressed forms are not used for Web Push.
+    if len(point) != 65 or point[0] != 0x04:
+        return f"p256dh_malformed_{len(point)}b"
+    if len(auth) != 16:
+        return f"auth_malformed_{len(auth)}b"
+    try:
+        # Right length and prefix still admits a point that is not on the curve,
+        # which fails the same permanent way at encryption time.
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), point)
+    except Exception:  # noqa: BLE001
+        return "p256dh_not_on_curve"
+    return ""
+
+
 def upsert_subscription(sub: dict[str, Any]) -> dict[str, str]:
     """Upsert a PushSubscription JSON (+ optional hour_kst, locale)."""
     endpoint = str(sub.get("endpoint") or "").strip()
@@ -245,6 +292,11 @@ def upsert_subscription(sub: dict[str, Any]) -> dict[str, str]:
         raise ValueError("invalid_subscription")
     if not keys.get("p256dh") or not keys.get("auth"):
         raise ValueError("invalid_subscription")
+    # Reject at the door as well as at send time — a row that can never be
+    # delivered to is worse than no row, because it looks like an audience.
+    defect = key_defect(keys)
+    if defect:
+        raise ValueError(f"invalid_subscription_keys:{defect}")
 
     hour = sub.get("hour_kst", DEFAULT_HOUR_KST)
     try:
@@ -363,6 +415,12 @@ def _send_one(sub: dict[str, Any], payload: dict[str, Any]) -> tuple[str, str, s
     if signer is None:
         return "error", "vapid_key_unusable", str(vapid_selftest().get("reason") or "")
 
+    # Dead on arrival, and dead every future run too — retire it like a 410
+    # rather than burning a send and an error line on it once an hour.
+    defect = key_defect(sub.get("keys"))
+    if defect:
+        return "gone", f"keys_{defect}", ""
+
     locale = (sub.get("locale") or "ko").lower()
     title = payload["title_en"] if locale.startswith("en") else payload["title_ko"]
     body = payload["body_en"] if locale.startswith("en") else payload["body_ko"]
@@ -437,6 +495,7 @@ def dispatch_daily(*, hour_kst: int | None = None, force: bool = False) -> dict[
 
     sent = gone = errors = 0
     failures: dict[str, int] = {}
+    retired: dict[str, int] = {}
     failure_samples: list[dict[str, str]] = []
     survivors: list[dict[str, Any]] = []
     endpoint_gone: set[str] = set()
@@ -447,6 +506,11 @@ def dispatch_daily(*, hour_kst: int | None = None, force: bool = False) -> dict[
         elif status == "gone":
             gone += 1
             endpoint_gone.add(str(sub.get("endpoint")))
+            # "Gone" covers two different stories — the user unsubscribed (410)
+            # or the row was never deliverable (bad keys). Only the second is a
+            # defect on our side, so keep them apart in the response.
+            key = reason or "http_gone"
+            retired[key] = retired.get(key, 0) + 1
         else:
             errors += 1
             key = reason or "unknown"
@@ -476,6 +540,7 @@ def dispatch_daily(*, hour_kst: int | None = None, force: bool = False) -> dict[
         "errors": errors,
         "targets": len(targets),
         "failures": failures,
+        "retired": retired,
         "failure_samples": failure_samples,
         "vapid": vapid,
         "payload": payload,
@@ -495,6 +560,7 @@ def dispatch_daily(*, hour_kst: int | None = None, force: bool = False) -> dict[
                 "errors",
                 "targets",
                 "failures",
+                "retired",
                 "failure_samples",
                 "vapid",
             )
