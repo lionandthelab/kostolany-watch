@@ -1905,6 +1905,81 @@ button.btn-primary {
   font-size: 0.8rem;
 }
 
+/* Desk judgment layer (docs/DESK_JUDGMENT_LAYER_2026-08-07.md).
+   Reuses the conviction drawer's tokens on purpose — a second visual language
+   here would read as a second class of claim, and every line in this drawer has
+   exactly the same standing as the ledger above it. */
+.judgment-summary {
+  margin: 0.45rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.judgment-drawer {
+  margin-top: 0.15rem;
+}
+.judgment-section + .judgment-section {
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+}
+.judgment-section h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.judgment-lead {
+  margin: 0 0 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.judgment-list {
+  margin: 0.25rem 0 0.4rem;
+  padding-left: 16px;
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+.judgment-heads {
+  margin: 0.25rem 0 0.4rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 3px;
+  font-size: 0.85rem;
+}
+.judgment-heads li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.judgment-heads li em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--ember);
+}
+.judgment-heads li.is-dissent {
+  font-weight: 600;
+}
+.judgment-agree {
+  margin: 0.2rem 0;
+  font-size: 0.85rem;
+}
+.judgment-note {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.judgment-note code {
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+/* Rows only. No tick, no cross, no colour that could imply right or wrong —
+   this archive is deliberately unscored (design §3 C6). */
+.judgment-archive li {
+  font-variant-numeric: tabular-nums;
+}
+
 .flow-consensus.is-pending {
   border-color: rgba(26, 31, 28, 0.28);
   opacity: 0.8;
@@ -2754,6 +2829,34 @@ button.btn-primary {
   margin: 0 0 1.2rem;
   padding-left: 1.1rem;
   line-height: 1.7;
+}
+
+/* /guide/ hub article list — same fallback, one entry per live article. */
+.prerender-guide-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.prerender-guide-list li {
+  margin: 0 0 1.1rem;
+}
+
+.prerender-guide-list a {
+  color: var(--moss-deep);
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.08rem;
+}
+
+.prerender-guide-date {
+  margin-left: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.prerender-guide-list p {
+  margin: 0.25rem 0 0;
+  font-size: 0.92rem;
+  color: var(--muted);
 }
 
 .prerender-nav {

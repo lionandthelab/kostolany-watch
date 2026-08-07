@@ -28,6 +28,8 @@ export type Snapshot = {
   transition_score?: number | null;
   context_gauges?: ContextGaugeItem[] | null;
   vote?: VoteBlock | null;
+  flip?: FlipBlock | null;
+  run?: RunBlock | null;
 };
 
 export type RegimeInfo = {
@@ -75,6 +77,65 @@ export type VoteBlock = {
   rules: { id: string; vote: "up" | "down" }[];
 };
 
+/**
+ * Same-bar counterfactual boundaries for the 8 rules (docs/DESK_JUDGMENT_LAYER_2026-08-07.md §5.2).
+ * `move_pct` only — absolute price levels are deliberately absent from the
+ * payload so a support-line misreading is structurally impossible.
+ * momo head only; null on AI heads / fail-closed.
+ */
+export type FlipBlock = {
+  basis: "same_bar_close";
+  rules: { id: string; vote: "up" | "down"; move_pct: number }[];
+  steps: { split: string; tier: string; move_pct: number }[];
+  side_flip: { from: string; to: string; regime_to: string; move_pct: number } | null;
+};
+
+/** Trailing run length of the served call — a recomputation, not an archive. */
+export type RunBlock = {
+  side: "up" | "down";
+  side_bars: number;
+  side_since: string;
+  side_truncated: boolean;
+  regime: string;
+  regime_bars: number;
+  regime_since: string;
+  regime_truncated: boolean;
+  grid_bars: number;
+};
+
+/** Head-by-head calls, derived server-side from `snapshot.regime` only. */
+export type HeadDissent = {
+  n_heads: number;
+  calls: { id: string; regime: string; side: "up" | "down" }[];
+  side: {
+    majority: "up" | "down" | null;
+    n_agree: number;
+    unanimous: boolean;
+    dissenters: string[];
+  };
+  regime: { majority: string | null; n_agree: number; unanimous: boolean };
+};
+
+/** Unscored ledger archive rows. `scored` stays false until a pre-registered gate flips it. */
+export type LedgerRecent = {
+  days: {
+    date: string;
+    calls: {
+      symbol: string;
+      /** Null on archived rows written before the head reported an asof. */
+      asof: string | null;
+      regime: string;
+      split?: string;
+      tier?: string;
+      side?: string;
+    }[];
+  }[];
+  n_days: number;
+  first_date: string | null;
+  scored: boolean;
+  prereg_doc: string;
+};
+
 /** Frozen measured conditional tables backing the conviction display. */
 export type ConfidenceView = {
   source: string;
@@ -117,6 +178,8 @@ export type WatchBundle = {
   analysts: WatchAnalyst[];
   disclaimer: string;
   calibration?: RegimeCalibration;
+  /** Absent when the bundle carries fewer than 2 analysts, or on pre-v5 caches. */
+  head_dissent?: HeadDissent;
   cached?: boolean;
   stale?: boolean;
   refreshing?: boolean;
@@ -384,6 +447,21 @@ export async function sealWatch(
     refreshed: refreshed ? "true" : "false",
   });
   return fetchJson(`${API}/watch/seal?${q}`, 2, { method: "POST" });
+}
+
+/**
+ * Unscored ledger rows for the archive panel. Returns null on anything other
+ * than a clean hit — a missing endpoint (older API) or a busy circuit must hide
+ * the panel, never surface an error next to a call the panel does not score.
+ */
+export async function fetchLedgerRecent(days = 14): Promise<LedgerRecent | null> {
+  try {
+    const res = await cachePeekFetch(`${API}/ledger/recent?days=${days}`);
+    if (!res.ok) return null;
+    return (await res.json()) as LedgerRecent;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchNews(refresh = false): Promise<NewsDesk> {

@@ -470,6 +470,32 @@ def compute_macro_board() -> dict[str, Any]:
     }
 
 
+def board_cache_status() -> dict[str, Any]:
+    """Cached `asof` + age without rebuilding. For the freshness watchdog.
+
+    `get_macro_board()` falls through to `compute_macro_board()` (FRED, yfinance)
+    whenever the cache is cold or past TTL — a health endpoint must never be the
+    thing that triggers that.
+    """
+    path = _path()
+    if not path.exists():
+        return {"present": False, "asof": None, "cache_age_hours": None, "ttl_hours": BOARD_TTL_HOURS}
+    age_h = (time.time() - path.stat().st_mtime) / 3600.0
+    asof = None
+    try:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(cached, dict):
+            asof = cached.get("asof")
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "present": True,
+        "asof": asof,
+        "cache_age_hours": round(age_h, 3),
+        "ttl_hours": BOARD_TTL_HOURS,
+    }
+
+
 def get_macro_board(*, force: bool = False) -> dict[str, Any]:
     path = _path()
     if not force and path.exists():

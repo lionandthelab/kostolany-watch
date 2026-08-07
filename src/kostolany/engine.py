@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
@@ -24,6 +26,12 @@ from kostolany.tsfm import TSFMEnsemble
 ModelKind = Literal["hmm", "gbm", "ensemble", "tsfm", "ensemble_v3", "momo"]
 MODEL_FIT_LOCK = RLock()
 
+log = logging.getLogger(__name__)
+
+#: Conviction tier by majority size. Single source for `_vote_block` and the
+#: flip ladder — a second copy would let the two disagree about the same split.
+VOTE_TIER_BY_MAJORITY = {8: "unanimous", 7: "strong", 6: "lean"}
+
 
 @dataclass
 class EngineSnapshot:
@@ -44,6 +52,13 @@ class EngineSnapshot:
     # conviction tier keys off this). None for the AI heads and on the
     # fail-closed path (vote side disagreeing with the served regime side).
     vote: dict[str, Any] | None = None
+    # momo head only, both inheriting `vote`'s fail-closed discipline:
+    #   flip  same-bar counterfactual distances at which the call changes (C3)
+    #   run   trailing run-length of the served call (C4)
+    # None for the AI heads — a fitted model's regime run is a restatement of
+    # the fit, not the rule product the copy claims it is.
+    flip: dict[str, Any] | None = None
+    run: dict[str, Any] | None = None
 
 
 class KostolanyEngine:
@@ -139,6 +154,7 @@ class KostolanyEngine:
             except Exception:  # noqa: BLE001
                 tscore = None
 
+        vote = self._vote_block(ts, regime_id)
         return EngineSnapshot(
             symbol=self.symbol or "UNKNOWN",
             asof=str(pd.Timestamp(ts).date()),
@@ -153,7 +169,9 @@ class KostolanyEngine:
             disclaimer=DISCLAIMER_KO,
             transition_score=tscore,
             context_gauges=context_gauges,
-            vote=self._vote_block(ts, regime_id),
+            vote=vote,
+            flip=self._flip_block(ts, regime_id, vote),
+            run=self._run_block(ts, regime_id),
         )
 
     def _vote_block(self, ts: pd.Timestamp, regime_id: int) -> dict[str, Any] | None:
@@ -174,7 +192,7 @@ class KostolanyEngine:
             if (side == "up") != (regime_id < 3):
                 return None  # fail-closed; UI hides the badge
             n = max(up, down)
-            tier = {8: "unanimous", 7: "strong", 6: "lean"}.get(n, "mixed")
+            tier = VOTE_TIER_BY_MAJORITY.get(n, "mixed")
             return {
                 "up": up,
                 "down": down,
@@ -187,6 +205,152 @@ class KostolanyEngine:
                 ],
             }
         except Exception:  # noqa: BLE001 — the badge must never take the desk down
+            return None
+
+    def _flip_block(
+        self, ts: pd.Timestamp, regime_id: int, vote: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Where today's call breaks — momo only, fail-closed like `_vote_block`.
+
+        Subjunctive past, not a forecast: every number answers "had today's close
+        been X% lower/higher, this rule/tier/side would have gone the other way".
+        `momo.rule_flip_levels` makes that an identity with the served vote, so
+        there is no fitted quantity anywhere in this block.
+
+        Only `move_pct` ships. Absolute price levels are deliberately absent from
+        the payload — that is the one structural defence against the distance
+        being read as a support line, and it must stay structural rather than a
+        rule the renderer is asked to remember.
+        """
+        if self.model_kind != "momo" or vote is None or self._last_ohlcv is None:
+            return None
+        try:
+            from kostolany.momo import RULE_IDS
+
+            px = self._last_ohlcv["close"].dropna().astype(float).sort_index()
+            if ts not in px.index:
+                return None
+            px = px.loc[:ts]
+            close = float(px.iloc[-1])
+            if not math.isfinite(close) or close <= 0:
+                return None
+            levels = self.model.rule_flip_levels(px)
+            if levels.empty:
+                return None
+
+            served = {r["id"]: r["vote"] for r in vote["rules"]}
+            rules: list[dict[str, Any]] = []
+            for rid in RULE_IDS:
+                level = float(levels.loc[rid])
+                move = level / close - 1.0
+                if not math.isfinite(level) or not math.isfinite(move):
+                    return None
+                # Sign invariant. The closed form must reproduce the vote that
+                # was actually served; disagreement means the two are reading
+                # different bars (alignment ffill, a revised close), and a
+                # distance to the wrong boundary is worse than no distance.
+                if (close > level) != (served.get(rid) == "up"):
+                    log.warning("flip sign invariant failed for %s at %s", rid, ts)
+                    return None
+                rules.append({"id": rid, "vote": served[rid], "move_pct": move})
+
+            up = int(vote["up"])
+            side_up = up >= 4  # 4-4 ties resolve UP, same as `_vote_block`
+            # Moving the close toward the called side's boundaries can only
+            # flip called-side rules — the others sit on the far side and stay
+            # put — so the ladder is monotone and each step costs exactly one vote.
+            ladder = sorted(
+                (r for r in rules if (r["vote"] == "up") == side_up),
+                key=lambda r: abs(r["move_pct"]),
+            )
+
+            def _split_tier(u: int) -> tuple[str, str]:
+                n = max(u, 8 - u)
+                return f"{n}-{8 - n}", VOTE_TIER_BY_MAJORITY.get(n, "mixed")
+
+            # Rungs needed to take the majority across: down to 3 up-votes from
+            # an up call, up to 4 from a down call. The called side always has
+            # at least that many rules, so this rung always exists.
+            need = up - 3 if side_up else 4 - up
+
+            # Only the rungs BEFORE the side flips. Past it the majority reforms
+            # on the opposite side and the tier label climbs back — 6-2 "lean"
+            # again, now for the other call. Emitting those would read as this
+            # call's grade recovering. Bounded at 3 rows by construction:
+            # unanimous -> strong -> lean -> mixed is the whole descent.
+            steps: list[dict[str, Any]] = []
+            tier = _split_tier(up)[1]
+            for k, rung in enumerate(ladder[:need], start=1):
+                split, next_tier = _split_tier(up - k if side_up else up + k)
+                if next_tier != tier:
+                    steps.append(
+                        {"split": split, "tier": next_tier, "move_pct": rung["move_pct"]}
+                    )
+                    tier = next_tier
+
+            side_flip = None
+            if 1 <= need <= len(ladder):
+                # Side inverts, third does not: `labels_pit.pit_state` never
+                # reads bar t, so the turn clock is untouched by this
+                # counterfactual and the mirrored call keeps its sector number.
+                mirrored = regime_id + 3 if regime_id < 3 else regime_id - 3
+                side_flip = {
+                    "from": "up" if side_up else "down",
+                    "to": "down" if side_up else "up",
+                    "regime_to": Regime(mirrored).name,
+                    "move_pct": ladder[need - 1]["move_pct"],
+                }
+
+            rules.sort(key=lambda r: abs(r["move_pct"]))
+            return {
+                "basis": "same_bar_close",
+                "rules": rules,
+                "steps": steps,
+                "side_flip": side_flip,
+            }
+        except Exception:  # noqa: BLE001 — an extra panel must never take the desk down
+            return None
+
+    def _run_block(self, ts: pd.Timestamp, regime_id: int) -> dict[str, Any] | None:
+        """How long the served call has stood — momo only, a count and nothing more.
+
+        This is today's rules re-applied to past prices, NOT a record of what the
+        desk displayed on those days: the ledger's documented contamination
+        (auto_adjust back-adjustment) applies in full here and not at all there.
+        The UI carries that distinction as fixed copy; the two must never be
+        presented as the same fact.
+        """
+        if self.model_kind != "momo" or self._last_pred is None:
+            return None
+        try:
+            regimes = self._last_pred.regimes.loc[:ts]
+            ids = regimes.to_numpy(dtype=int)
+            if not len(ids) or int(ids[-1]) != int(regime_id):
+                return None
+            sides = ids < 3
+
+            def _trailing(arr) -> int:
+                n = 1
+                while n < len(arr) and arr[-1 - n] == arr[-1]:
+                    n += 1
+                return n
+
+            side_bars, regime_bars = _trailing(sides), _trailing(ids)
+            index = regimes.index
+            return {
+                "side": "up" if regime_id < 3 else "down",
+                "side_bars": int(side_bars),
+                "side_since": str(pd.Timestamp(index[-side_bars]).date()),
+                # A run reaching the first bar on the grid is a lower bound, not
+                # a start date — the UI has to say "at least N bars" for it.
+                "side_truncated": bool(side_bars == len(ids)),
+                "regime": Regime(regime_id).name,
+                "regime_bars": int(regime_bars),
+                "regime_since": str(pd.Timestamp(index[-regime_bars]).date()),
+                "regime_truncated": bool(regime_bars == len(ids)),
+                "grid_bars": int(len(ids)),
+            }
+        except Exception:  # noqa: BLE001
             return None
 
     def history(self) -> pd.DataFrame:

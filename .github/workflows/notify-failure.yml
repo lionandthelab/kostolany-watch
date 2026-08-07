@@ -1,0 +1,87 @@
+# Open (or refresh) one tracking issue when a scheduled workflow fails.
+#
+# Why this exists at all: GitHub does email on scheduled-workflow failure, but
+# only to whoever last touched the cron line, and it is one line in a mailbox
+# that already gets every Dependabot ping. That is how 2026-08-06's publish
+# failure ("job was not acquired by Runner of type hosted") sat unnoticed until
+# the next day's article was visibly missing. An issue is in the repo, it is
+# still there tomorrow, and closing it is a deliberate act.
+#
+# Anti-spam contract: exactly one issue per `title`, forever.
+#   - open issue with that title  -> comment (at most once per UTC day)
+#   - closed issue with that title -> reopen and comment
+#   - none                         -> create
+# The per-day cap is enforced with an HTML marker in the comment body, so a week
+# of breakage costs seven one-line comments rather than fifty issues.
+name: Notify failure
+
+on:
+  workflow_call:
+    inputs:
+      title:
+        description: "Issue title. Stable — it is the dedupe key. Do not put dates or run ids in it."
+        required: true
+        type: string
+      body:
+        description: "Markdown appended to the issue/comment. Put the run URL in here."
+        required: true
+        type: string
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          ISSUE_TITLE: ${{ inputs.title }}
+          ISSUE_BODY: ${{ inputs.body }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const title = process.env.ISSUE_TITLE;
+            const detail = process.env.ISSUE_BODY;
+            const today = new Date().toISOString().slice(0, 10);
+            const marker = `<!-- notify-failure ${title} ${today} -->`;
+            const body = `${detail}\n\n${marker}`;
+
+            // One page is enough: this repo has tens of issues, not thousands.
+            // If that ever stops being true the dedupe silently degrades to
+            // "open a second issue", which is noisy but never wrong.
+            const listed = await github.rest.issues.listForRepo({
+              owner, repo, state: "all", per_page: 100,
+              sort: "created", direction: "desc",
+            });
+            const mine = listed.data.filter((i) => !i.pull_request && i.title === title);
+            const existing = mine.find((i) => i.state === "open") || mine[0];
+
+            if (!existing) {
+              const created = await github.rest.issues.create({ owner, repo, title, body });
+              core.info(`Opened #${created.data.number}`);
+              return;
+            }
+
+            if (existing.state === "closed") {
+              // Same failure came back after someone closed it out. Reopen the
+              // original thread instead of forking a new one, so the history of
+              // "how many times has this bitten us" stays in one place.
+              await github.rest.issues.update({
+                owner, repo, issue_number: existing.number, state: "open",
+              });
+              core.info(`Reopened #${existing.number}`);
+            }
+
+            // `since` keeps this to today's comments, so the check stays O(1)
+            // no matter how long the issue has been open.
+            const comments = await github.rest.issues.listComments({
+              owner, repo, issue_number: existing.number,
+              since: `${today}T00:00:00Z`, per_page: 100,
+            });
+            if (comments.data.some((c) => (c.body || "").includes(marker))) {
+              core.info(`#${existing.number} already flagged today; not commenting again`);
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: existing.number, body,
+            });
+            core.info(`Commented on #${existing.number}`);

@@ -4,20 +4,28 @@ import {
   REGIME_GUIDE,
   TOP_MODELS,
   pctFloor,
+  pctMove,
   rimFromProba,
   type ModelId,
   type RegimeCode,
 } from "./eggGeometry";
 import {
   ensureWatchMarket,
+  fetchLedgerRecent,
   fetchWatch,
   peekWatch,
   startWatchWarmup,
+  type FlipBlock,
+  type HeadDissent,
+  type LedgerRecent,
+  type RunBlock,
   type Snapshot,
   type RegimeCalibration,
+  type VoteBlock,
   type WatchBundle,
 } from "./api";
 import { useLocale, useT } from "./i18n";
+import type { Messages } from "./i18n/types";
 import ErrorBoundary from "./ErrorBoundary";
 import FrontDoorContext from "./FrontDoorContext";
 import { trackEvent } from "./analytics";
@@ -29,6 +37,11 @@ const MARKETS = [
 ] as const;
 
 const MODEL_IDS = TOP_MODELS.map((m) => m.id);
+
+/** Owner decision D3 (2026-08-07): the ledger archive strip waits for ~30
+ *  archived days. Flip to true and the panel returns — the API already serves
+ *  it. docs/DESK_JUDGMENT_LAYER_2026-08-07.md §8. */
+const SHOW_LEDGER_ARCHIVE = false;
 
 function ExplainModal({
   title,
@@ -104,6 +117,347 @@ function formatCalibrationNote(cal: RegimeCalibration, tpl: string): string {
   });
 }
 
+const MARKET_LABEL_KEY: Record<string, "marketUs" | "marketCrypto"> = {
+  "^GSPC": "marketUs",
+  "BTC-USD": "marketCrypto",
+};
+
+/** Other-market call, rendered as codes and counts only — never its rates (§6 #10). */
+type CrossCall = {
+  labelKey: "marketUs" | "marketCrypto";
+  regime: string;
+  split: string;
+  side: "up" | "down";
+};
+
+/**
+ * Desk judgment layer (docs/DESK_JUDGMENT_LAYER_2026-08-07.md §6).
+ *
+ * Everything here is already-served fact: regime codes the server computed,
+ * deterministic counts over the rule ledger, and closed-form price distances.
+ * No hit rate is rendered in this drawer, which is why it stays safe on
+ * unmeasured symbols too. Each section disappears whole when its own block is
+ * missing — a pre-v5 cache must degrade to silence, never to placeholders.
+ */
+function JudgmentDrawer({
+  t,
+  symbol,
+  vote,
+  regime,
+  headDissent,
+  flip,
+  run,
+}: {
+  t: Messages;
+  symbol: string;
+  vote: VoteBlock | null;
+  regime: RegimeCode;
+  headDissent: HeadDissent | null;
+  flip: FlipBlock | null;
+  run: RunBlock | null;
+}) {
+  const [opened, setOpened] = useState(false);
+  const [cross, setCross] = useState<CrossCall | null>(null);
+  const [archive, setArchive] = useState<LedgerRecent | null>(null);
+
+  // Lazy on first open: neither the cross-market peek nor the ledger read is
+  // worth a request for a drawer nobody expanded. `peek` never triggers a
+  // rebuild (api.py returns 204 on a miss), so this cannot stampede Cloud Run.
+  useEffect(() => {
+    if (!opened) return;
+    let alive = true;
+    setCross(null);
+    const other = MARKETS.find((m) => m.value !== symbol);
+    if (other) {
+      void peekWatch(other.value, MODEL_IDS, 360)
+        .then((res) => {
+          if (!alive || res.status !== "hit") return;
+          const momo = res.data.analysts.find((a) => a.id === "momo");
+          const v = momo?.snapshot?.vote;
+          // A miss hides the panel. Falling back to a borrowed or stale value
+          // would put another market's number under this market's heading.
+          if (!momo || !v) return;
+          setCross({
+            labelKey: other.labelKey,
+            regime: momo.snapshot.regime,
+            split: v.split,
+            side: v.side,
+          });
+        })
+        .catch(() => undefined);
+    }
+    // C6 (the archive strip) is held back by owner decision D3, 2026-08-07:
+    // three rows is thin product for the cost of a permanent "not scored" line
+    // on screen, and C4 answers the same question better. Gated here rather
+    // than by deleting the code — /ledger/recent ships and stays exercised, so
+    // turning this on after ~30 archived days is one flag, not a rebuild.
+    // See docs/DESK_JUDGMENT_LAYER_2026-08-07.md §8.
+    if (SHOW_LEDGER_ARCHIVE) {
+      void fetchLedgerRecent(14)
+        .then((d) => {
+          if (alive) setArchive(d);
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      alive = false;
+    };
+  }, [opened, symbol]);
+
+  const ruleLabel = (id: string) =>
+    t.conviction.ledgerRules[id as keyof typeof t.conviction.ledgerRules] ?? id;
+  const headLabel = (id: string) => t.models[id as ModelId]?.label ?? id;
+  const dirWord = (x: number) => (x < 0 ? t.judgment.flip.dirDown : t.judgment.flip.dirUp);
+  const tierLabel = (tier: string) =>
+    tier === "mixed"
+      ? t.judgment.flip.tierMixed
+      : (t.conviction.tierName[tier as keyof typeof t.conviction.tierName] ?? tier);
+
+  const rulesAgainst = vote ? vote.rules.filter((r) => r.vote !== vote.side) : [];
+  const headsAgainst = (headDissent?.calls ?? []).filter((c) => c.regime !== regime);
+  const noDissent = rulesAgainst.length === 0 && headsAgainst.length === 0;
+
+  // Contract says ascending |move_pct|; sorting a copy costs nothing and keeps
+  // the ladder correct if a future payload ever ships it unordered.
+  const ladder = [...(flip?.rules ?? [])].sort(
+    (a, b) => Math.abs(a.move_pct) - Math.abs(b.move_pct),
+  );
+  const nearest = ladder[0] ?? null;
+  const nearestStep =
+    nearest ? ((flip?.steps ?? []).find((s) => s.move_pct === nearest.move_pct) ?? null) : null;
+  const tierSteps = (flip?.steps ?? []).filter(
+    (s) => !nearest || s.move_pct !== nearest.move_pct,
+  );
+
+  const showDoubt = Boolean(vote);
+  const showFlip = Boolean(flip && ladder.length);
+  const showHeads = Boolean(headDissent?.calls.length);
+  const showRun = Boolean(run);
+  // Cross / archive arrive after the first open, so they cannot decide whether
+  // the drawer exists — only the payload-derived sections can.
+  if (!showDoubt && !showFlip && !showHeads && !showRun) return null;
+
+  return (
+    <details
+      className="watch-details judgment-drawer"
+      onToggle={(e) => {
+        const isOpen = e.currentTarget.open;
+        setOpened((prev) => prev || isOpen);
+      }}
+    >
+      <summary>{t.judgment.title}</summary>
+      <div className="watch-details-body">
+        {showDoubt && vote && (
+          <section className="judgment-section">
+            <h4>{t.judgment.doubt.title}</h4>
+            <ul className="judgment-list">
+              <li>
+                {rulesAgainst.length
+                  ? fill(t.judgment.doubt.rules, {
+                      k: String(rulesAgainst.length),
+                      list: rulesAgainst.map((r) => ruleLabel(r.id)).join(" · "),
+                    })
+                  : t.judgment.doubt.rulesNone}
+              </li>
+              {headDissent && (
+                <li>
+                  {headsAgainst.length
+                    ? fill(t.judgment.doubt.heads, {
+                        n: String(headDissent.n_heads),
+                        k: String(headsAgainst.length),
+                        list: headsAgainst
+                          .map((c) => `${headLabel(c.id)} — ${c.regime}`)
+                          .join(" · "),
+                      })
+                    : fill(t.judgment.doubt.headsNone, { n: String(headDissent.n_heads) })}
+                </li>
+              )}
+              {flip?.side_flip && (
+                <li>
+                  {fill(t.judgment.doubt.flip, {
+                    d: pctMove(flip.side_flip.move_pct),
+                    dir:
+                      flip.side_flip.move_pct < 0
+                        ? t.judgment.doubt.dirDown
+                        : t.judgment.doubt.dirUp,
+                    regimeTo: flip.side_flip.regime_to,
+                  })}
+                </li>
+              )}
+              {noDissent && <li>{t.judgment.doubt.none}</li>}
+            </ul>
+            <p className="judgment-note">{t.judgment.doubt.note}</p>
+          </section>
+        )}
+
+        {showFlip && flip && nearest && (
+          <section className="judgment-section">
+            <h4>{t.judgment.flip.title}</h4>
+            <p className="judgment-lead">{t.judgment.flip.lead}</p>
+            <ul className="judgment-list">
+              <li>
+                {fill(nearestStep ? t.judgment.flip.rule : t.judgment.flip.ruleNoSplit, {
+                  d: pctMove(nearest.move_pct),
+                  dir: dirWord(nearest.move_pct),
+                  ruleLabel: ruleLabel(nearest.id),
+                  side: t.conviction.sideWord[nearest.vote === "up" ? "down" : "up"],
+                  split: nearestStep?.split ?? "",
+                })}
+              </li>
+              {tierSteps.map((s) => (
+                <li key={`${s.split}-${s.move_pct}`}>
+                  {fill(t.judgment.flip.tier, {
+                    d: pctMove(s.move_pct),
+                    dir: dirWord(s.move_pct),
+                    tierName: tierLabel(s.tier),
+                  })}
+                </li>
+              ))}
+              {flip.side_flip && (
+                <li>
+                  {fill(t.judgment.flip.side, {
+                    d: pctMove(flip.side_flip.move_pct),
+                    dir: dirWord(flip.side_flip.move_pct),
+                    regimeTo: flip.side_flip.regime_to,
+                  })}
+                </li>
+              )}
+            </ul>
+            <p className="judgment-note">{t.judgment.flip.note1}</p>
+            <p className="judgment-note">{t.judgment.flip.note2}</p>
+          </section>
+        )}
+
+        {showHeads && headDissent && (
+          <section className="judgment-section">
+            <h4>{t.judgment.heads.title}</h4>
+            <ul className="judgment-heads">
+              {headDissent.calls.map((c) => {
+                const split =
+                  headDissent.side.majority != null && c.side !== headDissent.side.majority;
+                return (
+                  <li key={c.id} className={split ? "is-dissent" : undefined}>
+                    <span>
+                      {fill(t.judgment.heads.row, {
+                        label: headLabel(c.id),
+                        regime: c.regime,
+                        side: t.conviction.sideWord[c.side],
+                      })}
+                    </span>
+                    {split && <em>{t.judgment.heads.dissentMark}</em>}
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="judgment-agree">
+              {headDissent.side.majority
+                ? fill(t.judgment.heads.agree, {
+                    n: String(headDissent.n_heads),
+                    k: String(headDissent.side.n_agree),
+                    side: t.conviction.sideWord[headDissent.side.majority],
+                  })
+                : fill(t.judgment.heads.tied, { n: String(headDissent.n_heads) })}
+            </p>
+            <p className="judgment-note">{t.judgment.heads.note}</p>
+          </section>
+        )}
+
+        {showRun && run && (
+          <section className="judgment-section">
+            <h4>{t.judgment.run.title}</h4>
+            <ul className="judgment-list">
+              <li>
+                {fill(run.side_truncated ? t.judgment.run.sideTruncated : t.judgment.run.side, {
+                  side: t.conviction.sideWord[run.side],
+                  n: String(run.side_bars),
+                  since: run.side_since,
+                })}
+              </li>
+              <li>
+                {fill(
+                  run.regime_truncated ? t.judgment.run.regimeTruncated : t.judgment.run.regime,
+                  {
+                    regime: run.regime,
+                    n: String(run.regime_bars),
+                    since: run.regime_since,
+                  },
+                )}
+              </li>
+            </ul>
+            <p className="judgment-note">{t.judgment.run.note1}</p>
+            <p className="judgment-note">{t.judgment.run.note2}</p>
+          </section>
+        )}
+
+        {cross && (
+          <section className="judgment-section">
+            <h4>{t.judgment.cross.title}</h4>
+            <ul className="judgment-list">
+              <li>
+                {fill(t.judgment.cross.row, {
+                  market: t.watch[cross.labelKey],
+                  regime: cross.regime,
+                  split: cross.split,
+                  side: t.conviction.sideWord[cross.side],
+                })}
+              </li>
+            </ul>
+            <p className="judgment-note">{t.judgment.cross.note}</p>
+          </section>
+        )}
+
+        {archive && (
+          <section className="judgment-section">
+            <h4>{t.judgment.archive.title}</h4>
+            {archive.days.length ? (
+              <ul className="judgment-list judgment-archive">
+                {archive.days.map((d) => (
+                  <li key={d.date}>
+                    {fill(t.judgment.archive.row, {
+                      date: d.date,
+                      cells: d.calls
+                        .map((c) => {
+                          const key = MARKET_LABEL_KEY[c.symbol];
+                          const market = key ? t.watch[key] : c.symbol;
+                          return c.split
+                            ? fill(t.judgment.archive.cell, {
+                                market,
+                                regime: c.regime,
+                                split: c.split,
+                              })
+                            : fill(t.judgment.archive.cellPlain, { market, regime: c.regime });
+                        })
+                        .join(" · "),
+                    })}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="judgment-note">{t.judgment.archive.empty}</p>
+            )}
+            {/* Hard constraint of the design: the unscored notice and the
+                pre-registration reference travel with every archive render. */}
+            {!archive.scored && (
+              <p className="judgment-note">
+                {t.judgment.archive.notScored}{" "}
+                {archive.prereg_doc ? <code>{archive.prereg_doc}</code> : null}
+              </p>
+            )}
+            {archive.first_date && (
+              <p className="judgment-note">
+                {fill(t.judgment.archive.range, {
+                  first: archive.first_date,
+                  n: String(archive.n_days),
+                })}
+              </p>
+            )}
+          </section>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export default function WatchApp() {
   const t = useT();
   const { formatDate } = useLocale();
@@ -118,6 +472,7 @@ export default function WatchApp() {
     "cached" | "stale" | "refreshing" | "cached_at" | "expires_at" | "can_refresh" | "refresh_available_at"
   > | null>(null);
   const [calibration, setCalibration] = useState<RegimeCalibration | null>(null);
+  const [headDissent, setHeadDissent] = useState<HeadDissent | null>(null);
   const [modal, setModal] = useState<"regime" | "analysts" | null>(null);
   const loadGen = useRef(0);
   const memRef = useRef<Map<string, WatchBundle>>(new Map());
@@ -140,6 +495,7 @@ export default function WatchApp() {
       refresh_available_at: bundle.refresh_available_at,
     });
     setCalibration(bundle.calibration ?? null);
+    setHeadDissent(bundle.head_dissent ?? null);
     // Fixed default focus (S4): the measured-best head leads. Never pick the
     // focus by uncalibrated confidence — that was auditing finding P4.2.
     setFocus((cur) => (nextSnaps[cur] ? cur : nextSnaps.momo ? "momo" : (Object.keys(nextSnaps)[0] as ModelId)));
@@ -315,14 +671,21 @@ export default function WatchApp() {
   const guide = t.regimes[regime] ?? t.regimes.A2;
   const asof = focusSnap?.asof ?? "";
 
+  // Server-side tally of each head's OWN call (`snapshot.regime`, an argmax).
+  // This used to recompute agreement from `rimFromProba` — the circular mean of
+  // the posterior — which is a different quantity and could disagree with the
+  // head's own label on a spread posterior. rimFromProba now stays on the egg,
+  // where the rim angle is what it actually means. Absent block → no line.
   const agreement = useMemo(() => {
-    const votes = modelMarks.map((m) => rimFromProba(m.probabilities).regime);
-    if (votes.length < 2) return null;
-    const counts: Record<string, number> = {};
-    for (const v of votes) counts[v] = (counts[v] ?? 0) + 1;
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
-    return top ? { regime: top[0] as RegimeCode, n: top[1], total: votes.length } : null;
-  }, [modelMarks]);
+    if (!headDissent || headDissent.n_heads < 2) return null;
+    const majority = headDissent.regime.majority;
+    if (!majority) return null;
+    return {
+      regime: majority as RegimeCode,
+      n: headDissent.regime.n_agree,
+      total: headDissent.n_heads,
+    };
+  }, [headDissent]);
 
   const contextGauges = useMemo(() => {
     const level = (v: number) =>
@@ -378,6 +741,46 @@ export default function WatchApp() {
             p: pctFloor(cview.tiers[vote.tier].side_hit),
           })
       : null;
+
+  // [4.5] Counts only — no percentage. The §0.7 number budget is a % budget;
+  // counts are permitted by §0.4 and the alignment badge is the precedent.
+  const judgmentSummary = useMemo(() => {
+    const parts: string[] = [];
+    const sideMajority = headDissent?.side.majority;
+    if (headDissent && sideMajority) {
+      parts.push(
+        fill(t.judgment.summary.heads, {
+          n: String(headDissent.n_heads),
+          k: String(headDissent.side.n_agree),
+          side: t.conviction.sideWord[sideMajority],
+        }),
+      );
+    }
+    const against = vote ? vote.rules.filter((r) => r.vote !== vote.side).length : 0;
+    if (against > 0) parts.push(fill(t.judgment.summary.rules, { k: String(against) }));
+    const run = focusSnap?.run ?? null;
+    if (run) {
+      parts.push(
+        fill(run.side_truncated ? t.judgment.summary.runTruncated : t.judgment.summary.run, {
+          side: t.conviction.sideWord[run.side],
+          n: String(run.side_bars),
+        }),
+      );
+    }
+    return parts.length ? parts.join(" · ") : null;
+  }, [headDissent, vote, focusSnap, t]);
+
+  const judgmentDrawer = (
+    <JudgmentDrawer
+      t={t}
+      symbol={symbol}
+      vote={vote}
+      regime={regime}
+      headDissent={headDissent}
+      flip={focusSnap?.flip ?? null}
+      run={focusSnap?.run ?? null}
+    />
+  );
 
   return (
     <div className="desk-panel watch-slim">
@@ -437,6 +840,7 @@ export default function WatchApp() {
                     </p>
                   )}
                   {!cview && <p className="status">{t.conviction.unmeasured}</p>}
+                  {judgmentSummary && <p className="judgment-summary">{judgmentSummary}</p>}
 
                   <details className="watch-details">
                     <summary>{t.conviction.detailTitle}</summary>
@@ -545,6 +949,9 @@ export default function WatchApp() {
                       </div>
                     </div>
                   </details>
+                  {/* Sibling of the existing drawer — the shipped one keeps its
+                      contents and order untouched (design §6.1). */}
+                  {judgmentDrawer}
                 </div>
               )}
 
@@ -569,42 +976,46 @@ export default function WatchApp() {
               )}
 
               {!(focus === "momo" && vote) && (
-                <details className="watch-details">
-                  <summary>{t.conviction.detailTitle}</summary>
-                  <div className="watch-details-body">
-                    {agreement && (
-                      <p className="brief-agree">
-                        {fill(t.conviction.aiRefTitle, {
-                          code: agreement.regime,
-                          k: String(agreement.n),
-                          total: String(agreement.total),
-                        })}
-                      </p>
-                    )}
-                    <div className="explain-row">
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm"
-                        onClick={() => {
-                          trackEvent("open_explain", { kind: "regime", symbol });
-                          setModal("regime");
-                        }}
-                      >
-                        {t.watch.explainRegime}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost btn-sm"
-                        onClick={() => {
-                          trackEvent("open_explain", { kind: "analysts", symbol });
-                          setModal("analysts");
-                        }}
-                      >
-                        {t.watch.explainAi}
-                      </button>
+                <>
+                  {judgmentSummary && <p className="judgment-summary">{judgmentSummary}</p>}
+                  <details className="watch-details">
+                    <summary>{t.conviction.detailTitle}</summary>
+                    <div className="watch-details-body">
+                      {agreement && (
+                        <p className="brief-agree">
+                          {fill(t.conviction.aiRefTitle, {
+                            code: agreement.regime,
+                            k: String(agreement.n),
+                            total: String(agreement.total),
+                          })}
+                        </p>
+                      )}
+                      <div className="explain-row">
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          onClick={() => {
+                            trackEvent("open_explain", { kind: "regime", symbol });
+                            setModal("regime");
+                          }}
+                        >
+                          {t.watch.explainRegime}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost btn-sm"
+                          onClick={() => {
+                            trackEvent("open_explain", { kind: "analysts", symbol });
+                            setModal("analysts");
+                          }}
+                        >
+                          {t.watch.explainAi}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </details>
+                  </details>
+                  {judgmentDrawer}
+                </>
               )}
             </div>
           )}

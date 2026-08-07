@@ -6,12 +6,46 @@
 # redeploys on or after its date — that is this workflow's only job.
 #
 # Hosting only. The API is untouched, so this never redeploys Cloud Run.
+#
+# RETRY DESIGN — why three crons instead of a retry step.
+# On 2026-08-06 this run died with "The job was not acquired by Runner of type
+# hosted even after multiple attempts". Nothing in the job ever executed, so no
+# step-level retry (`nick-fields/retry`, a `for` loop, anything) could have
+# helped: there was no runner to run the retry on. Actions has no native
+# job-level retry either, and the alternatives — a second workflow that watches
+# for a failed run and calls `gh run rerun`, or a self-dispatch on failure —
+# both need a runner at exactly the moment runners are the thing that is broken.
+#
+# So the retry is the schedule itself: fire again at 03:05 and 07:05 KST. This
+# is only safe because the job is already idempotent, and that idempotency is
+# load-bearing, so do not break it:
+#   - `npm run build` regenerates public/guide + sitemap.xml deterministically
+#     from articles.json and the current KST date (build-guide.mjs stamps no
+#     wall-clock time into either), and
+#   - the "Detect whether anything became live" step deploys only when that
+#     regeneration actually differs from what is committed.
+# A backup run on a day that already published produces a byte-identical tree,
+# sees no diff, and exits having done nothing. A backup run after a half-failed
+# run (deployed but never committed) redeploys the same content and commits —
+# also harmless.
+# Measured 2026-08-07 against origin/main (ff80a07): rebuilding with
+# PUBLISH_AS_OF=2026-08-06, the day that tree was published for, left all 31
+# tracked files under web/public/guide + sitemap.xml byte-identical (0 changed,
+# 0 created). The same build at 2026-08-07 emitted exactly the article the
+# failed run missed (backtest-traps ko/en/default + feed.xml + sitemap.xml),
+# which is the catch-up path a backup cron is there to take.
+# The backup times must stay inside the same KST day as the primary, i.e. after
+# 15:00 UTC. A cron before 15:00 UTC would build with yesterday's `kstToday()`
+# and quietly publish nothing.
 name: Daily publish
 
 on:
   schedule:
     # 15:05 UTC = 00:05 KST, just after the Seoul day rolls over.
     - cron: "5 15 * * *"
+    # Backups. No-ops if the primary already published — see RETRY DESIGN above.
+    - cron: "5 18 * * *" # 03:05 KST
+    - cron: "5 22 * * *" # 07:05 KST
   workflow_dispatch:
     inputs:
       as_of:
@@ -29,6 +63,10 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # The default is 6 hours. A hung job would hold the concurrency group past
+    # both backup crons and eat the whole day's retry budget; this fails fast
+    # enough that 03:05 KST still gets a clean shot.
+    timeout-minutes: 20
     permissions:
       contents: write # commits the generated guide HTML back
     steps:
@@ -101,3 +139,34 @@ jobs:
           git add web/public/guide web/public/sitemap.xml
           git commit -m "Publish scheduled guide article(s) for $(TZ=Asia/Seoul date +%F)"
           git push
+
+  # The backup crons cover a run that never starts. This covers a run that
+  # starts and dies — and, more to the point, makes the failure visible. See
+  # notify-failure.yml for why the built-in email was not enough.
+  #
+  # Scheduled runs only: a manual run is someone watching the log live, and
+  # filing an issue about their own dry-run typo is noise. `failure()` here
+  # means "the publish job failed", timeout included.
+  notify:
+    needs: publish
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    permissions:
+      issues: write
+    uses: ./.github/workflows/notify-failure.yml
+    with:
+      title: "Daily publish is failing"
+      body: |
+        A scheduled `Daily publish` run failed, so today's guide article may not be live.
+
+        Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+        Two backup crons follow the 00:05 KST primary (03:05 and 07:05 KST). If the cause was
+        infrastructure — e.g. `The job was not acquired by Runner of type hosted` — a later run
+        today will publish the backlog on its own, because `build-guide.mjs` gates on
+        `date <= today` and catches up every article whose date has passed. Check whether a
+        later run went green before doing anything by hand.
+
+        If all three failed: run the workflow manually from the Actions tab (leave both inputs
+        blank), or check `dry_run` first to see what it would publish.
+
+        Close this issue once a run goes green; it reopens itself if it recurs.

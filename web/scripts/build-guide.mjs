@@ -6,7 +6,7 @@
  * scheduled article stays reachable by direct URL after its date is pushed back.
  */
 import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,6 +38,38 @@ export function isLive(a, today = TODAY) {
 const articles = allArticles.filter((a) => isLive(a));
 const scheduled = allArticles.filter((a) => a.status !== "draft" && !isLive(a));
 const SITE = "https://kostolany-watch.web.app";
+
+/**
+ * Live articles, newest first — for other build steps that must agree with the
+ * files this script actually wrote (scripts/prerender-routes.mjs builds the
+ * /guide/ hub from exactly this list).
+ *
+ * Exported rather than re-derived so there is one gate, not two. Re-deriving it
+ * is how the hub ends up advertising a slug whose HTML was withheld.
+ */
+export function liveArticles() {
+  return [...articles].sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+/**
+ * Slugs that exist in articles.json but whose date has not arrived, so no HTML
+ * was written for them. prerender-routes.mjs gives each one a `noindex` shell:
+ * Hosting cannot 404 them (catch-all rewrite), and a 200 carrying
+ * `index,follow` is an invitation regardless of how the URL was found.
+ *
+ * These are not hypothetical URLs. `tests/test_guide_articles.py` accepts an
+ * in-article link to any non-draft slug, scheduled ones included, so a live
+ * article may legally link forward into the queue; and a slug that publishes,
+ * gets announced via IndexNow, then has its date pushed back becomes exactly
+ * this case with Google already holding the URL.
+ *
+ * Drafts are excluded on purpose: a draft slug is linked from nowhere and may
+ * never ship, so emitting a file for one would put an unannounced slug on the
+ * CDN for no gain.
+ */
+export function scheduledArticles() {
+  return [...scheduled];
+}
 
 function escapeHtml(s) {
   return String(s)
@@ -150,8 +182,15 @@ function writeArticle(article, lang) {
 
 function writeGuideIndex() {
   /**
-   * Do NOT write public/guide/index.html — Firebase would serve it instead of the SPA,
-   * hiding the React newsletter form. Keep article HTML + feed only; /guide/ → SPA.
+   * Do NOT write public/guide/index.html here — a fully static hub would be
+   * served by Firebase instead of the SPA, hiding the React newsletter form and
+   * the API-fed weekly/daily briefs (those never enter articles.json).
+   *
+   * The hub is not skipped, though: scripts/prerender-routes.mjs writes
+   * dist/guide/index.html at postbuild as the *SPA shell* with a crawlable
+   * article list inside #root, which React then replaces on mount. That step
+   * needs the hashed asset names, which do not exist yet at prebuild time —
+   * which is why the hub cannot be built from this file.
    */
   const dir = join(root, "public/guide");
   mkdirSync(dir, { recursive: true });
@@ -256,20 +295,35 @@ ${items}
   writeFileSync(join(root, "public/guide/feed.xml"), xml, "utf8");
 }
 
-for (const article of articles) {
-  writeArticle(article, "ko");
-  writeArticle(article, "en");
+function main() {
+  for (const article of articles) {
+    writeArticle(article, "ko");
+    writeArticle(article, "en");
+  }
+  writeGuideIndex();
+  const pruned = pruneScheduledOutput();
+  writeSitemap();
+  writeRss();
+  const drafts = allArticles.length - articles.length - scheduled.length;
+  const next = scheduled.map((a) => a.date).sort()[0];
+  console.log(
+    `build-guide: ${articles.length} live as of ${TODAY}` +
+      (scheduled.length ? ` · ${scheduled.length} scheduled (next ${next})` : "") +
+      (drafts ? ` · ${drafts} draft` : "") +
+      (pruned.length ? ` · pruned ${pruned.join(", ")}` : "") +
+      " → public/guide + sitemap.xml + feed.xml",
+  );
 }
-writeGuideIndex();
-const pruned = pruneScheduledOutput();
-writeSitemap();
-writeRss();
-const drafts = allArticles.length - articles.length - scheduled.length;
-const next = scheduled.map((a) => a.date).sort()[0];
-console.log(
-  `build-guide: ${articles.length} live as of ${TODAY}` +
-    (scheduled.length ? ` · ${scheduled.length} scheduled (next ${next})` : "") +
-    (drafts ? ` · ${drafts} draft` : "") +
-    (pruned.length ? ` · pruned ${pruned.join(", ")}` : "") +
-    " → public/guide + sitemap.xml + feed.xml",
-);
+
+/**
+ * Only generate when run as a script. prerender-routes.mjs imports `isLive` /
+ * `liveArticles` from here so the hub cannot drift from what was written to
+ * disk; without this guard that import would silently re-run the whole
+ * generation (and the prune) in the middle of postbuild.
+ *
+ * Case-insensitive compare: on Windows argv[1] and import.meta.url can disagree
+ * on drive-letter case. A false positive here just re-runs an idempotent build;
+ * a false negative would silently produce no guide output at all.
+ */
+const entry = process.argv[1] ? resolve(process.argv[1]) : "";
+if (entry.toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) main();

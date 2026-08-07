@@ -88,9 +88,28 @@ displayed on KST date D**, and every series carries its own `asof`/`observed_at`
 ## Not built yet
 
 - **Scoring.** Records accumulate now; scoring a call against realised gold
-  labels needs the leg to close (~76 bars). Do not build the public scorecard
-  until there is enough archived history to score, and pre-register the scoring
-  rule before looking at results.
+  labels needs the leg to close (~76 bars — 2,816 OOS bars / 37 legs on ^GSPC,
+  `calibration.MEASURED_BY_SYMBOL`). Do not build the public scorecard until
+  there is enough archived history to score, and pre-register the scoring rule
+  before looking at results.
+
+  **Status 2026-08-07: the rule is pre-registered** —
+  [`LEDGER_SCORING_PREREG_2026-08-07.md`](LEDGER_SCORING_PREREG_2026-08-07.md).
+  Fixed while zero legs had closed, so post-hoc selection is structurally
+  impossible rather than merely discouraged. The scorer itself is still
+  unwritten; it must not run against the real ledger before the tier-1
+  threshold (8 pooled legs, estimated 2027 Q3) and must not be *judged* before
+  tier 2 (20 pooled legs, estimated 2029 Q1). Both estimates, and the arithmetic
+  behind them, are in §4 of that document.
+
+  Ingestion continuity is a precondition of scoring validity — a ledger that
+  stops silently makes the whole asset worthless, and outage days are unlikely
+  to be missing at random. §7 of the prereg fixes the handling: missing bars are
+  **excluded, never interpolated**, coverage is measured over distinct `asof`
+  bars (not calendar days), and a market whose bar coverage falls below 0.90 is
+  reported as unjudged. `GET /api/health/freshness` is the early-warning
+  surface, but a green light there is not evidence of validity — the scorer
+  recomputes coverage itself.
 - **Retention hardening.** GCS retention policies are bucket-level, so an
   immutable-by-infrastructure ledger needs its own bucket. Today immutability is
   enforced in code only.

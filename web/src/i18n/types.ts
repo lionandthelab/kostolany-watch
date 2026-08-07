@@ -211,4 +211,75 @@ export type Messages = {
     aiRefTitle: string; // {code} {k} {total}
     aiRefNote: string;
   };
+  /** Desk judgment layer (docs/DESK_JUDGMENT_LAYER_2026-08-07.md §6.4).
+   * Facts already in the payload — deterministic counts and closed-form price
+   * distances. NO hit rate reaches this namespace, so no literal `%` or digit
+   * may appear in any string here; every number arrives through a slot.
+   * English mirrors stay in the subjunctive past — no future tense. */
+  judgment: {
+    title: string;
+    /** Count-only headline strip — never a percentage (spec §0.4 / §0.7). */
+    summary: {
+      heads: string; // {n} {k} {side}
+      rules: string; // {k}
+      run: string; // {side} {n}
+      runTruncated: string; // {side} {n}
+    };
+    doubt: {
+      title: string;
+      rules: string; // {k} {list}
+      rulesNone: string;
+      heads: string; // {n} {k} {list}
+      headsNone: string; // {n}
+      flip: string; // {d} {dir} {regimeTo}
+      dirDown: string;
+      dirUp: string;
+      none: string;
+      note: string;
+    };
+    flip: {
+      title: string;
+      lead: string;
+      rule: string; // {d} {dir} {ruleLabel} {side} {split}
+      ruleNoSplit: string; // {d} {dir} {ruleLabel} {side}
+      tier: string; // {d} {dir} {tierName}
+      tierMixed: string;
+      side: string; // {d} {dir} {regimeTo}
+      dirDown: string;
+      dirUp: string;
+      note1: string;
+      note2: string;
+    };
+    heads: {
+      title: string;
+      row: string; // {label} {regime} {side}
+      dissentMark: string;
+      agree: string; // {n} {k} {side}
+      tied: string; // {n}
+      note: string;
+    };
+    run: {
+      title: string;
+      side: string; // {side} {n} {since}
+      sideTruncated: string; // {side} {n}
+      regime: string; // {regime} {n} {since}
+      regimeTruncated: string; // {regime} {n}
+      note1: string;
+      note2: string;
+    };
+    cross: {
+      title: string;
+      row: string; // {market} {regime} {split} {side}
+      note: string;
+    };
+    archive: {
+      title: string;
+      row: string; // {date} {cells}
+      cell: string; // {market} {regime} {split}
+      cellPlain: string; // {market} {regime}
+      notScored: string;
+      range: string; // {first} {n}
+      empty: string;
+    };
+  };
 };

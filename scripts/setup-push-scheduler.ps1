@@ -5,6 +5,7 @@ param(
   [string]$Region = "asia-northeast3",
   [string]$Service = "kostolany-api",
   [string]$HourlySchedule = "5 * * * *",
+  [string]$DailyCardSchedule = "0 13 * * *",
   [string]$TimeZone = "Etc/UTC"
 )
 
@@ -67,11 +68,29 @@ function Pause-Job([string]$Name) {
   Write-Host "  paused $Name (if existed)"
 }
 
-Write-Host "== Pause legacy newsletter jobs ==" -ForegroundColor Cyan
-Pause-Job "newsletter-daily-generate"
+function Delete-Job([string]$Name) {
+  $ErrorActionPreference = "Continue"
+  gcloud scheduler jobs delete $Name --location=$Region --project=$ProjectId --quiet 2>$null | Out-Null
+  $ErrorActionPreference = "Stop"
+  Write-Host "  deleted $Name (if existed)"
+}
+
+# Only `newsletter-weekly-dispatch` is a newsletter job. `newsletter-daily-generate`
+# was misread as one here and paused along with it on 2026-08-02 — but it builds the
+# on-site daily card and sends no email, so pausing it silently froze the newest card
+# at 2026-08-02 while the desk kept serving. It is replaced below under a name that
+# says what it does; the old job is retired rather than left paused-and-misleading.
+Write-Host "== Retire legacy newsletter jobs ==" -ForegroundColor Cyan
 Pause-Job "newsletter-weekly-dispatch"
+Delete-Job "newsletter-daily-generate"
 
 Write-Host "== Upsert push dispatch job ==" -ForegroundColor Cyan
 Upsert-HttpJob "push-daily-dispatch" "https://kostolany-watch.web.app/api/push/dispatch" $HourlySchedule "Hourly Web Push (filters by hour_kst)"
 
-Write-Host "Push scheduler ready. Email newsletter paused." -ForegroundColor Green
+# 13:00 UTC = 22:00 KST the same calendar day. The card's slug is `daily-<date>`
+# built from the server's UTC date, so this slot is the one where UTC and KST
+# agree — see the endpoint docstring before moving it.
+Write-Host "== Upsert daily card job ==" -ForegroundColor Cyan
+Upsert-HttpJob "briefs-daily-generate" "https://kostolany-watch.web.app/api/briefs/daily/generate" $DailyCardSchedule "Daily desk card at 22:00 KST (on-site only, no email)"
+
+Write-Host "Push scheduler ready. Daily card restored. Email newsletter retired." -ForegroundColor Green

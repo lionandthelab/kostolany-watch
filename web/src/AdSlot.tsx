@@ -25,6 +25,28 @@ export const ADSENSE_LIVE = Boolean(
   APPROVED && CLIENT.startsWith("ca-pub-") && /^\d+$/.test(SLOT),
 );
 
+/**
+ * Say out loud which env var is holding the units back.
+ *
+ * These are build-time constants, so "no ad anywhere on the site" and "the env
+ * var was never set" look identical at runtime — the component simply returns
+ * null and nothing distinguishes it from a page that has no slot. That cost a
+ * full round of live debugging once (2026-08-07: units had never rendered
+ * because .env carried only VITE_ADSENSE_CLIENT). DEV only; production stays
+ * silent, and Vite folds `import.meta.env.DEV` to false so this whole block is
+ * dropped from the shipped bundle.
+ */
+if (import.meta.env.DEV && !ADSENSE_LIVE) {
+  const missing = [
+    APPROVED ? "" : "VITE_ADSENSE_APPROVED=true",
+    CLIENT.startsWith("ca-pub-") ? "" : "VITE_ADSENSE_CLIENT=ca-pub-…",
+    /^\d+$/.test(SLOT) ? "" : "VITE_ADSENSE_SLOT=<digits>",
+  ].filter(Boolean);
+  console.info(
+    `[AdSlot] ad units off — set ${missing.join(" + ")} in web/.env, then rebuild (build-time constants). See docs/ADSENSE.md`,
+  );
+}
+
 let scriptLoading = false;
 
 function ensureAdSenseScript() {

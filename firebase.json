@@ -58,11 +58,11 @@
       },
       {
         "source": "/guide",
-        "destination": "/index.html"
+        "destination": "/guide/index.html"
       },
       {
         "source": "/guide/",
-        "destination": "/index.html"
+        "destination": "/guide/index.html"
       },
       {
         "source": "**",

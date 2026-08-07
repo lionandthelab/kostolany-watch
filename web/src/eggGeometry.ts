@@ -232,6 +232,15 @@ export type ModelId = (typeof TOP_MODELS)[number]["id"];
 export const pctFloor = (x: number) => `${Math.floor(x * 100)}%`;
 export const pctFloor1 = (x: number) => `${Math.floor(x * 1000) / 10}%`;
 
+/** Price DISTANCE, not a measured rate. Never route this through pctFloor:
+ *  pctFloor is reserved for measured probabilities (spec §0.3), and the two
+ *  formatters coexist on one screen. Magnitude truncates TOWARD ZERO so the
+ *  display never overstates how much buffer a call has — understating the
+ *  distance is the conservative error. Always rendered with its sign AND a
+ *  "had it been lower/higher" clause (design §6.3). */
+export const pctMove = (x: number) =>
+  `${x < 0 ? "-" : "+"}${Math.trunc(Math.abs(x) * 1000) / 10}%`;
+
 const RING: readonly RegimeCode[] = ["A1", "A2", "A3", "B1", "B2", "B3"];
 
 function circMid(a: number, b: number): number {

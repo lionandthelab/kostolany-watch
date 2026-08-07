@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 
 import pytest
+from fastapi.testclient import TestClient
 
-from kostolany import ledger
+from kostolany import api, ledger
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +20,10 @@ def _isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(ledger, "pull_blob", lambda *a, **k: False)
     monkeypatch.setattr(ledger, "push_blob_async", lambda *a, **k: None)
     monkeypatch.setattr(ledger, "_root", lambda: tmp_path / "ledger")
+    # The recent-window memo outlives a test by 30 minutes by design.
+    api._ledger_recent_cache.clear()
     yield
+    api._ledger_recent_cache.clear()
 
 
 def _record(day: str = "2026-08-04", **over) -> dict:
@@ -196,3 +201,140 @@ def test_record_is_valid_json_on_disk():
     ledger.save_record(_record())
     raw = (ledger._root() / "day" / "2026-08-04.json").read_text(encoding="utf-8")
     assert json.loads(raw)["date"] == "2026-08-04"
+
+
+def test_capture_archives_the_flip_and_run_blocks(monkeypatch):
+    """Neither is reconstructable later — back-adjusted prices give other numbers."""
+    cached = {
+        "cache_age_hours": 0.5,
+        "cached_at": "2026-08-06T14:00:00+00:00",
+        "analysts": [
+            {
+                "id": "momo",
+                "snapshot": {
+                    "regime": "B2",
+                    "asof": "2026-08-05",
+                    "vote": {"split": "8-0", "tier": "unanimous", "side": "down"},
+                    "flip": {"basis": "same_bar_close", "rules": [], "steps": [], "side_flip": None},
+                    "run": {"side": "down", "side_bars": 37},
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "kostolany.watch_cache.read_watch_cache", lambda *a, **k: cached
+    )
+    monkeypatch.setattr("kostolany.calibration.calibration_payload", lambda s: None)
+
+    rows, err = ledger.capture_calls()
+    assert err is None
+    assert rows and all(r["model"] == "momo" for r in rows)
+    assert rows[0]["flip"]["basis"] == "same_bar_close"
+    assert rows[0]["run"]["side_bars"] == 37
+    # head_dissent is a count over the per-head `regime` strings already stored,
+    # so it is deliberately not duplicated into the archive.
+    assert "head_dissent" not in rows[0]
+
+
+# ------------------------------------------------------------ /ledger/recent
+
+
+def _seed_days_ago(offset: int, calls: list[dict]) -> str:
+    day = (date.fromisoformat(ledger.kst_today()) - timedelta(days=offset)).isoformat()
+    ledger.save_record(_record(day, calls=calls))
+    return day
+
+
+def _recent(days: int = 14) -> dict:
+    return TestClient(api.create_app()).get(f"/ledger/recent?days={days}").json()
+
+
+def test_ledger_recent_is_not_swallowed_by_the_day_route():
+    """`/ledger/{day}`'s date pattern is a validator, not a route match."""
+    resp = TestClient(api.create_app()).get("/ledger/recent")
+    assert resp.status_code == 200
+
+
+def test_ledger_recent_copies_serving_head_rows_for_watch_markets_only():
+    day = _seed_days_ago(
+        1,
+        [
+            {
+                "symbol": "^GSPC", "model": "momo", "asof": "2026-08-05", "regime": "B2",
+                "vote": {"split": "8-0", "tier": "unanimous", "side": "down"},
+            },
+            # Archived for later comparison, but never on screen.
+            {"symbol": "^GSPC", "model": "hmm", "asof": "2026-08-05", "regime": "A3"},
+            # Not a watch market.
+            {
+                "symbol": "EEM", "model": "momo", "asof": "2026-08-05", "regime": "A1",
+                "vote": {"split": "6-2", "tier": "lean", "side": "up"},
+            },
+            # Fail-closed archive: regime only, no reconstructed split.
+            {"symbol": "BTC-USD", "model": "momo", "asof": "2026-08-05", "regime": "A2", "vote": None},
+        ],
+    )
+    body = _recent()
+
+    assert body["n_days"] == 1
+    assert body["days"][0]["date"] == day
+    calls = body["days"][0]["calls"]
+    assert [c["symbol"] for c in calls] == ["^GSPC", "BTC-USD"]
+    assert calls[0] == {
+        "symbol": "^GSPC", "asof": "2026-08-05", "regime": "B2",
+        "split": "8-0", "tier": "unanimous", "side": "down",
+    }
+    assert calls[1] == {"symbol": "BTC-USD", "asof": "2026-08-05", "regime": "A2"}
+
+
+def test_ledger_recent_never_scores_and_never_aggregates():
+    """T0 forbids scoring; this view exists because showing is not scoring."""
+    _seed_days_ago(1, [{"symbol": "^GSPC", "model": "momo", "regime": "B2", "vote": None}])
+    _seed_days_ago(2, [{"symbol": "^GSPC", "model": "momo", "regime": "A2", "vote": None}])
+    body = _recent()
+
+    assert body["scored"] is False
+    assert body["prereg_doc"] == api.LEDGER_PREREG_DOC
+    # Row counts and the window's edges only — no rate, streak or agreement.
+    assert set(body) == {"days", "n_days", "first_date", "scored", "prereg_doc", "disclaimer"}
+    for row in body["days"]:
+        for call in row["calls"]:
+            assert set(call) <= {"symbol", "asof", "regime", "split", "tier", "side"}
+
+
+def test_ledger_recent_orders_newest_first_and_reports_the_window_start():
+    days = [_seed_days_ago(n, [{"symbol": "^GSPC", "model": "momo", "regime": "B2", "vote": None}])
+            for n in (1, 2, 4)]
+    body = _recent()
+
+    assert [d["date"] for d in body["days"]] == sorted(days, reverse=True)
+    assert body["first_date"] == min(days)
+
+
+def test_ledger_recent_window_excludes_days_outside_it():
+    _seed_days_ago(1, [{"symbol": "^GSPC", "model": "momo", "regime": "B2", "vote": None}])
+    _seed_days_ago(9, [{"symbol": "^GSPC", "model": "momo", "regime": "A2", "vote": None}])
+
+    assert _recent(days=14)["n_days"] == 2
+    api._ledger_recent_cache.clear()
+    assert _recent(days=3)["n_days"] == 1
+
+
+def test_ledger_recent_answers_normally_on_an_empty_archive():
+    body = _recent()
+    assert body["n_days"] == 0
+    assert body["days"] == []
+    assert body["first_date"] is None
+    assert body["scored"] is False
+
+
+def test_ledger_recent_reads_each_date_once_per_ttl(monkeypatch):
+    """One GCS pull per archived date is the whole cost — do not pay it per request."""
+    _seed_days_ago(1, [{"symbol": "^GSPC", "model": "momo", "regime": "B2", "vote": None}])
+    reads: list[str] = []
+    real = ledger.get_record
+    monkeypatch.setattr(ledger, "get_record", lambda d: (reads.append(d), real(d))[1])
+
+    _recent()
+    _recent()
+    assert reads == [reads[0]]

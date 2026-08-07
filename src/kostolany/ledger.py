@@ -154,6 +154,14 @@ def capture_calls() -> tuple[list[dict[str, Any]], str | None]:
                     "probabilities": snap.get("probabilities"),
                     "gauges": snap.get("gauges"),
                     "vote": snap.get("vote"),
+                    # Both are recomputable only against back-adjusted prices,
+                    # so a later reconstruction would not reproduce them —
+                    # exactly the class of fact this archive exists to hold.
+                    # (`head_dissent` is deliberately NOT copied: it is a count
+                    # over the per-head `regime` strings already archived below,
+                    # so a copy would add a second version of one fact.)
+                    "flip": snap.get("flip"),
+                    "run": snap.get("run"),
                     "transition_score": snap.get("transition_score"),
                     "confidence_view": confidence_view,
                     "payload_version": WATCH_PAYLOAD_VERSION,

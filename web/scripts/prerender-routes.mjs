@@ -15,11 +15,17 @@
  * selector).
  *
  * Runs AFTER `vite build` because it needs the hashed asset filenames.
+ *
+ * Three shells beyond the SPA routes are written here for the same reason:
+ * `/guide/` (the article hub), `/guide/<scheduled-slug>/` (noindex soft-404
+ * covers) and the crawlable body of `/` itself. See `renderGuideHub` and
+ * `renderLanding` for why each one could not be produced at prebuild time.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { liveArticles, scheduledArticles } from "./build-guide.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
@@ -116,15 +122,9 @@ function swap(html, pattern, replacement, label) {
   return html.replace(pattern, replacement);
 }
 
-function renderRoute(shell, route) {
-  const url = `${SITE}${route.path}`;
-  // `applySeo` appends the site name the same way — keep them byte-identical so
-  // hydration does not visibly rewrite the title.
-  const title = route.title.includes(SITE_NAME)
-    ? route.title
-    : `${route.title} · ${SITE_NAME}`;
-  const desc = escapeHtml(route.description);
-
+/** Rewrite the shell head for `url`, leaving the body untouched. */
+function renderHead(shell, { url, title, description, robots }) {
+  const desc = escapeHtml(description);
   let html = shell;
   html = swap(html, /<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(title)}</title>`, "title");
   html = swap(
@@ -139,6 +139,14 @@ function renderRoute(shell, route) {
     `<link rel="canonical" href="${url}" />`,
     "canonical",
   );
+  if (robots) {
+    html = swap(
+      html,
+      /<meta name="robots" content="[^"]*" \/>/,
+      `<meta name="robots" content="${robots}" />`,
+      "robots",
+    );
+  }
   // hreflang set points at this route, not the home page.
   html = html.replace(
     /<link rel="alternate" hreflang="(ko|en|x-default)" href="[^"]*" \/>/g,
@@ -156,7 +164,26 @@ function renderRoute(shell, route) {
     /<meta property="og:description" content="[\s\S]*?" \/>/,
     `<meta property="og:description" content="${desc}" />`,
   );
-  return html.replace(/<div id="root">\s*<\/div>/, renderIntro(route));
+  return html;
+}
+
+/** Put crawlable markup where React will mount. Throws if `#root` moved. */
+function fillRoot(html, body) {
+  if (!/<div id="root">\s*<\/div>/.test(html)) {
+    throw new Error("prerender: empty #root not found — shell shape changed");
+  }
+  return html.replace(/<div id="root">\s*<\/div>/, body);
+}
+
+function renderRoute(shell, route) {
+  const url = `${SITE}${route.path}`;
+  // `applySeo` appends the site name the same way — keep them byte-identical so
+  // hydration does not visibly rewrite the title.
+  const title = route.title.includes(SITE_NAME)
+    ? route.title
+    : `${route.title} · ${SITE_NAME}`;
+  const html = renderHead(shell, { url, title, description: route.description });
+  return fillRoot(html, renderIntro(route));
 }
 
 /**
@@ -192,12 +219,149 @@ ${bullets}
     </div>`;
 }
 
+const DISCLAIMER =
+  "본 정보는 교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다. 투자 판단과 손실에 대한 책임은 이용자 본인에게 있습니다.";
+
+const NAV =
+  '<a href="/watch">국면</a> · <a href="/macro">거시 흐름</a> · <a href="/news">뉴스</a> · <a href="/guide/">가이드</a> · <a href="/about">서비스 소개</a>';
+
+/** Mirrors `t.seo.guide` in src/i18n/ko.ts; pinned by tests/test_prerender.py. */
+const GUIDE_SEO = {
+  title: "가이드 — 달걀·국면 해설",
+  description: "코스톨라니 달걀과 6국면 해설, 주간 국면 브리핑. 교육·연구 목적.",
+};
+
+/**
+ * The /guide/ hub — the only page that lists every article.
+ *
+ * Why here and not in build-guide.mjs: a plain static hub in `public/` would be
+ * served by Hosting *instead of* the SPA (static files beat rewrites — that is
+ * exactly why build-guide.mjs deletes public/guide/index.html), which would
+ * drop the push opt-in form and the API-fed weekly/daily briefs that never
+ * enter articles.json. What is needed is the SPA shell with a crawlable list
+ * inside #root, and the shell only exists after `vite build` has hashed the
+ * assets. So: postbuild, here.
+ *
+ * Why it matters: `firebase.json` rewrote /guide/ to the home shell, whose
+ * #root is empty, so the hub — the page the sitemap, the feed and every article
+ * nav point at — shipped with zero links to any article (measured live
+ * 2026-08-07). Articles cross-link each other, but nothing led *into* that
+ * graph except sitemap.xml.
+ *
+ * Written as `guide/index.html`, not the flat `guide.html` the SPA routes use:
+ * the guide's canonical URL ends in a slash (sitemap, feed, every in-article
+ * nav link), so the directory index is the form that serves it with no redirect
+ * hop. `guide.html` would make Hosting 301 /guide/ → /guide instead.
+ */
+function renderGuideHub(shell) {
+  const items = liveArticles()
+    .map((a) => {
+      const href = `/guide/${a.slug}/`;
+      return `          <li>
+            <a href="${href}">${escapeHtml(a.title.ko)}</a>
+            <span class="prerender-guide-date">${escapeHtml(a.date)}</span>
+            <p>${escapeHtml(a.description.ko)}</p>
+          </li>`;
+    })
+    .join("\n");
+  const body = `<div id="root">
+      <main class="prerender-intro">
+        <h1>코스톨라니 달걀·6국면 가이드</h1>
+        <p>시장 사이클을 여섯 칸으로 나눠 읽는 방법, 판정에 쓰이는 추세 규칙, 거시 지표를 국면과 잇는 방식까지 한 편씩 풀어 둔 글 모음입니다. 주간 국면 브리핑도 같은 자리에 쌓입니다.</p>
+        <p>새 글은 <a href="/guide/feed.xml">RSS</a>로 받아볼 수 있습니다.</p>
+        <ul class="prerender-guide-list">
+${items}
+        </ul>
+        <p class="prerender-nav">${NAV}</p>
+        <p class="prerender-disclaimer">${DISCLAIMER}</p>
+      </main>
+    </div>`;
+  const html = renderHead(shell, {
+    url: `${SITE}/guide/`,
+    title: `${GUIDE_SEO.title} · ${SITE_NAME}`,
+    description: GUIDE_SEO.description,
+  });
+  return fillRoot(html, body);
+}
+
+/**
+ * A `noindex` cover for a slug that exists in articles.json but has not reached
+ * its publish date.
+ *
+ * `App.tsx` already sets noindex for these, but only after React runs. The
+ * catch-all rewrite means Hosting answers 200 with the home shell, whose head
+ * says `index,follow` — so the raw HTML a crawler fetches invites indexing, and
+ * the correction arrives one render pass too late (Bing and Naver never get
+ * there at all). Measured live on 2026-08-07: /guide/backtest-traps/ returned
+ * 200 + index,follow with 44 characters of body. Writing the directive into the
+ * file is the only version of this guard that a non-rendering crawler obeys.
+ *
+ * The article text is NOT included — the date gate is what withholds it, and
+ * this must not become a back door around it. Once the date arrives,
+ * build-guide.mjs writes the real page into public/ and vite copies it to dist
+ * before this step runs; `scheduledArticles()` no longer lists the slug, so
+ * nothing here can overwrite it.
+ */
+function renderScheduledCover(shell, article) {
+  const body = `<div id="root">
+      <!-- prerender: withheld ${escapeHtml(article.slug)} -->
+      <main class="prerender-intro">
+        <h1>아직 공개되지 않은 글입니다</h1>
+        <p>이 주소의 글은 아직 발행 전입니다. 공개된 글은 가이드 목록에서 볼 수 있습니다.</p>
+        <p class="prerender-nav"><a href="/guide/">가이드 목록으로</a> · ${NAV}</p>
+        <p class="prerender-disclaimer">${DISCLAIMER}</p>
+      </main>
+    </div>`;
+  const html = renderHead(shell, {
+    // Canonical points at the hub, matching what applySeo does client-side.
+    url: `${SITE}/guide/`,
+    title: `${GUIDE_SEO.title} · ${SITE_NAME}`,
+    description: GUIDE_SEO.description,
+    robots: "noindex,follow",
+  });
+  return fillRoot(html, body);
+}
+
+/**
+ * Crawlable body for `/` itself.
+ *
+ * The landing was the one route with no shell at all: dist/index.html ships an
+ * empty #root, so a non-rendering crawler saw a page with no text and — more
+ * to the point — no link to /guide/ or anywhere else. Its guide CTA was a
+ * <button>, which is not a link a crawler can follow either (Landing.tsx now
+ * uses an <a href> for the same reason), so the hub had no inbound link from
+ * the site's most-linked page.
+ *
+ * Rewritten in place rather than as a separate file: `**` already resolves to
+ * dist/index.html, and a second copy would be a duplicate of the home page.
+ */
+function renderLanding(shell) {
+  const body = `<div id="root">
+      <main class="prerender-intro">
+        <h1>지금 시장은 달걀의 어디쯤인가</h1>
+        <p>Kostolany Watch는 앙드레 코스톨라니의 달걀 모형을 빌려, S&amp;P 500과 비트코인이 사이클의 어디쯤에 있는지를 확률로 보여 주는 교육·연구용 도구입니다.</p>
+        <p>기본 판정은 학습된 모형이 아니라 사전에 공개된 8개 추세 규칙의 다수결입니다. 규칙은 전부 화면에 공개되며 누구나 아무 차트 앱으로 재현할 수 있습니다.</p>
+        <ul>
+          <li><a href="/watch">국면</a> — 여섯 칸 위 확률과 세 AI 분석가의 위치</li>
+          <li><a href="/macro">거시 흐름</a> — 금리·물가·VIX·달러 등 배경 지표</li>
+          <li><a href="/news">뉴스</a> — 돈·신용·가상화폐·심리 헤드라인</li>
+          <li><a href="/guide/">가이드</a> — 달걀과 6국면 해설, 주간 국면 브리핑</li>
+          <li><a href="/about">서비스 소개</a> — 무엇을 하고, 무엇을 하지 않는가</li>
+        </ul>
+        <p class="prerender-disclaimer">${DISCLAIMER}</p>
+      </main>
+    </div>`;
+  return fillRoot(shell, body);
+}
+
 function main() {
   const shellPath = join(dist, "index.html");
   if (!existsSync(shellPath)) {
     console.error("prerender: dist/index.html missing — run vite build first");
     process.exit(1);
   }
+  // Read once, up front: every renderer needs the shell with an EMPTY #root,
+  // and renderLanding overwrites this same file at the end.
   const shell = readFileSync(shellPath, "utf8");
 
   mkdirSync(dist, { recursive: true });
@@ -209,8 +373,30 @@ function main() {
     const name = `${route.path.replace(/^\//, "")}.html`;
     writeFileSync(join(dist, name), renderRoute(shell, route), "utf8");
   }
+
+  const hubDir = join(dist, "guide");
+  mkdirSync(hubDir, { recursive: true });
+  const hub = liveArticles();
+  writeFileSync(join(hubDir, "index.html"), renderGuideHub(shell), "utf8");
+
+  const withheld = scheduledArticles();
+  for (const article of withheld) {
+    const dir = join(hubDir, article.slug);
+    // Belt and braces: build-guide.mjs prunes these, so a real article page
+    // should never be here. If one is, it is the published article and the
+    // noindex cover must not replace it.
+    if (existsSync(join(dir, "index.html"))) continue;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "index.html"), renderScheduledCover(shell, article), "utf8");
+  }
+
+  writeFileSync(shellPath, renderLanding(shell), "utf8");
+
   console.log(
-    `prerender: ${ROUTES.length} route shells → dist/{${ROUTES.map((r) => `${r.path.slice(1)}.html`).join(",")}}`,
+    `prerender: ${ROUTES.length} route shells → dist/{${ROUTES.map((r) => `${r.path.slice(1)}.html`).join(",")}}` +
+      ` · /guide/ hub with ${hub.length} article links` +
+      (withheld.length ? ` · ${withheld.length} noindex covers` : "") +
+      " · landing body → dist/index.html",
   );
 }
 

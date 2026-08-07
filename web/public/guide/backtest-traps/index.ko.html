@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>백테스트를 믿으면 안 되는 이유 — 과최적화와 데이터 누수 · Kostolany Watch</title>
+  <meta name="description" content="그럴듯한 백테스트 수익률이 실전에서 무너지는 세 가지 이유와, 그것을 막기 위해 이 저장소가 쓰는 검증 장치를 정리한 교육용 해설." />
+  <meta name="robots" content="index,follow" />
+  <link rel="canonical" href="https://kostolany-watch.web.app/guide/backtest-traps/" />
+  <link rel="alternate" type="application/rss+xml" title="Kostolany Watch Guide" href="https://kostolany-watch.web.app/guide/feed.xml" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Kostolany Watch" />
+  <meta property="og:locale" content="ko_KR" />
+  <meta property="og:url" content="https://kostolany-watch.web.app/guide/backtest-traps/" />
+  <meta property="og:title" content="백테스트를 믿으면 안 되는 이유 — 과최적화와 데이터 누수" />
+  <meta property="og:description" content="그럴듯한 백테스트 수익률이 실전에서 무너지는 세 가지 이유와, 그것을 막기 위해 이 저장소가 쓰는 검증 장치를 정리한 교육용 해설." />
+  <meta property="og:image" content="https://kostolany-watch.web.app/og-image.jpg" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root { --ink:#1a1f1c; --muted:#5c6b63; --moss:#2f5d50; --line:#d5ddd6; }
+    body { margin:0; font-family:"IBM Plex Sans",system-ui,sans-serif; color:var(--ink); background:linear-gradient(165deg,#f7f3ea,#e7efe4 55%,#dfe8df); line-height:1.65; }
+    .wrap { width:min(42rem, calc(100% - 2rem)); margin:0 auto; padding:2rem 0 4rem; }
+    a { color:var(--moss); }
+    h1 { font-family:Fraunces,Georgia,serif; font-size:clamp(1.6rem,4vw,2.2rem); color:var(--moss); line-height:1.25; margin:0; }
+    h2 { font-family:Fraunces,Georgia,serif; font-size:1.25rem; margin-top:1.75rem; }
+    .meta { color:var(--muted); font-size:0.9rem; margin:0.5rem 0 1.5rem; }
+    .nav { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; font-size:0.92rem; }
+    .disclaimer { color:var(--muted); font-size:0.88rem; border-top:1px solid var(--line); padding-top:1rem; margin-top:2rem; }
+    article { background:rgba(255,255,255,0.45); border:1px solid var(--line); border-radius:14px; padding:1.25rem 1.35rem 1.5rem; }
+    .cta { display:inline-block; margin-top:1rem; padding:0.55rem 1rem; border-radius:10px; background:var(--moss); color:#fff !important; text-decoration:none; font-weight:600; }
+    ul { padding-left: 1.2rem; }
+    .push-cta { margin:1.5rem 0; padding:1rem 1.1rem; border:1px solid var(--line); border-radius:12px; background:rgba(255,255,255,0.35); }
+    .push-cta h2 { margin:0; font-size:1.15rem; }
+    .push-cta .lead { margin:0.35rem 0 0.75rem; color:var(--muted); font-size:0.92rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="nav">
+      <a href="/">Kostolany Watch</a>
+      <a href="/guide/">Guide</a>
+      <a href="/watch">Regime</a>
+      <a href="/macro">Macro</a>
+      <a href="/news">News</a>
+    </nav>
+    <article>
+      <h1>백테스트를 믿으면 안 되는 이유 — 과최적화와 데이터 누수</h1>
+      <p class="meta">업데이트 2026-08-07</p>
+      <p>백테스트는 과거 데이터에 전략을 돌려 보는 일입니다. 문제는 <strong>거의 모든 백테스트가 좋아 보인다</strong>는 것입니다. 좋아 보이도록 만드는 것이 너무 쉽기 때문입니다.</p><h2>1. 과최적화 — 정답을 알고 문제를 푸는 것</h2><p>이동평균 길이를 20일로 할지 60일로 할지 정할 때, 여러 값을 넣어 보고 가장 결과가 좋은 것을 고르면 그 순간 그 숫자는 <strong>과거에 맞춘 값</strong>이 됩니다. 시도 횟수가 많을수록 우연히 잘 맞는 조합이 반드시 하나는 나옵니다.</p><p>이 문제가 무서운 이유는, 고른 사람 본인도 부정행위를 했다고 느끼지 않는다는 데 있습니다. 그냥 “테스트해 보고 좋은 걸 골랐을” 뿐이니까요.</p><h2>2. 데이터 누수 — 미래를 몰래 참조하는 것</h2><p>가장 흔하고 가장 잡기 어려운 오류입니다. 예를 들어:</p><ul><li>신호가 뜬 <strong>같은 날 종가</strong>에 체결했다고 가정 — 실제로는 종가를 알아야 신호가 계산됩니다</li><li>경제지표를 <strong>발표일이 아니라 해당 월</strong>에 붙임 — 6월 물가는 7월 말에야 나옵니다</li><li>학습 구간과 검증 구간이 <strong>시간적으로 겹침</strong> — 수익률은 며칠에 걸쳐 실현되므로 경계 근처가 섞입니다</li><li>배당 조정된 가격을 씀 — 2015년 봉이 <strong>오늘 기준으로 소급 수정된 값</strong>을 담고 있습니다</li></ul><h2>3. 생존 편향 — 사라진 것을 세지 않는 것</h2><p>현재 상장된 종목만으로 과거를 테스트하면, 그 사이 상장폐지된 종목이 통째로 빠집니다. 망한 것들을 빼고 계산한 수익률이 좋은 건 당연합니다.</p><h2>이 저장소가 쓰는 장치</h2><ul><li><strong>구간 분리와 완충</strong> — 학습·검증 구간 사이를 잘라내고 사이에 빈 구간을 둡니다</li><li><strong>실행 지연</strong> — 신호가 확정된 다음 봉에서 체결한 것으로 계산합니다</li><li><strong>누수 검사기</strong> — 피처와 라벨의 시차 위반을 자동으로 잡아냅니다</li><li><strong>사전 등록</strong> — 무엇을 어떤 기준으로 잴지 결과를 보기 전에 고정합니다</li><li><strong>무적합 비교군</strong> — 파라미터가 0개인 단순 규칙을 항상 같이 돌립니다</li></ul><p>마지막 항목이 실제로 가장 많은 것을 잡아냈습니다. 학습 모델을 단순 규칙과 나란히 놓고 재봤더니 <strong>단순 규칙이 이겼고</strong>, 그래서 사전에 정해 둔 규칙대로 학습 모델을 기본에서 내렸습니다. 비교군이 없었다면 그 모델은 아직도 “꽤 괜찮은 모델”로 남아 있었을 것입니다.</p><p><a href="/guide/can-ai-predict-stock-prices">실제 측정 결과 보기</a> · <a href="/watch">국면 화면</a></p><p class="disclaimer">본 정보는 교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.</p>
+      <p><a class="cta" href="/watch">국면 보기</a></p>
+      
+    <section class="push-cta">
+      <h2>일일 국면 알림</h2>
+      <p class="lead">브라우저 푸시로 매일 국면 지표를 받을 수 있습니다. 앱 가이드에서 켜 주세요.</p>
+      <p><a class="cta" href="/guide/">알림 설정 열기</a></p>
+    </section>
+    </article>
+  </div>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-XC1KSGMXTX"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-XC1KSGMXTX', { page_path: location.pathname });
+  </script>
+</body>
+</html>

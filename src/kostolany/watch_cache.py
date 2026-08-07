@@ -20,7 +20,11 @@ REFRESH_COOLDOWN_HOURS = 1.0
 #       corrected weak-label drawdown terms, `calibration` block in the payload.
 # v3: conviction system — vote block on momo snapshots + confidence_view in
 # the calibration payload. Old blobs lack both and must not be served.
-WATCH_PAYLOAD_VERSION = "v4"
+# v5: desk judgment layer — `flip`/`run` on momo snapshots and body-level
+# `head_dissent`. Without the bump the new drawer renders empty against every
+# surviving blob until its TTL expires, which is exactly the window a deploy
+# is watched in.
+WATCH_PAYLOAD_VERSION = "v5"
 
 
 def _path(symbol: str, models: str, limit: int, stride: int) -> Path:

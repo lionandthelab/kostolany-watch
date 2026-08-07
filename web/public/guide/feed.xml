@@ -6,6 +6,13 @@
     <description>코스톨라니 달걀·6국면 해설과 주간 국면 브리핑 (교육·연구용, 투자 권유 아님)</description>
     <language>ko</language>
     <item>
+      <title>백테스트를 믿으면 안 되는 이유 — 과최적화와 데이터 누수</title>
+      <link>https://kostolany-watch.web.app/guide/backtest-traps/</link>
+      <guid isPermaLink="true">https://kostolany-watch.web.app/guide/backtest-traps/</guid>
+      <pubDate>Fri, 07 Aug 2026 00:00:00 GMT</pubDate>
+      <description>그럴듯한 백테스트 수익률이 실전에서 무너지는 세 가지 이유와, 그것을 막기 위해 이 저장소가 쓰는 검증 장치를 정리한 교육용 해설.</description>
+    </item>
+    <item>
       <title>강세장·약세장은 어떻게 구분하나 — 통상적 기준의 함정</title>
       <link>https://kostolany-watch.web.app/guide/bull-market-bear-market/</link>
       <guid isPermaLink="true">https://kostolany-watch.web.app/guide/bull-market-bear-market/</guid>

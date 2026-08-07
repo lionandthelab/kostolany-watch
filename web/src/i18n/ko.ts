@@ -316,4 +316,76 @@ export const ko: Messages = {
     aiRefNote:
       "기본 판정은 AI가 아닌, 사전 등록된 8개 추세 규칙의 다수결입니다. AI 시점(HMM·GBM·TSFM)은 참고용입니다.",
   },
+  judgment: {
+    title: "추가 판단 근거",
+    summary: {
+      heads: "헤드 {n}개 중 {k}개 {side}",
+      rules: "규칙 8개 중 {k}개 반대",
+      run: "{side} 판정 {n}거래일째",
+      runTruncated: "{side} 판정 최소 {n}거래일째",
+    },
+    doubt: {
+      title: "이 판정을 의심할 이유",
+      rules: "8개 규칙 중 {k}개가 반대편입니다: {list}",
+      rulesNone: "8개 규칙 중 반대는 없습니다.",
+      heads: "{n}개 헤드 중 {k}개가 다른 국면을 부릅니다: {list}",
+      headsNone: "{n}개 헤드 전부 같은 레그를 가리킵니다.",
+      flip: "오늘 종가가 지금보다 {d} {dir} 이 판정은 {regimeTo}였습니다.",
+      dirDown: "낮았다면",
+      dirUp: "높았다면",
+      none:
+        "지금은 반대 신호가 없습니다. 반대 신호가 없다는 것이 적중을 뜻하지는 않습니다 — 만장일치 날에도 방향이 틀린 날이 있었고, 위 등급표의 적중률이 그 사실을 그대로 담고 있습니다.",
+      note: "이 목록은 적중률과 연결되지 않습니다 — 지금 판정이 어디서 흔들리는지만 보여줍니다.",
+    },
+    flip: {
+      title: "이 판정이 뒤집히는 지점",
+      lead: "오늘 종가가 지금보다 …",
+      rule: "{d} {dir} 「{ruleLabel}」이 {side}(으)로 갈립니다 (정렬 {split})",
+      ruleNoSplit: "{d} {dir} 「{ruleLabel}」이 {side}(으)로 갈립니다",
+      tier: "{d} {dir} 정렬 등급이 「{tierName}」(으)로 내려갑니다",
+      tierMixed: "혼조",
+      side: "{d} {dir} 8규칙 다수결의 방향 판정 자체가 바뀌어 {regimeTo}가 됩니다",
+      dirDown: "낮았다면 →",
+      dirUp: "높았다면 →",
+      note1:
+        "이 값들은 규칙의 정의에서 나오는 산술입니다. 오늘 종가를 다른 값으로 바꿔 넣었을 때 같은 규칙이 어떻게 갈리는지일 뿐, 가격 예측도 매매 기준선도 아닙니다.",
+      note2:
+        "전환 시계(초입/중간/말기)는 오늘 종가를 읽지 않으므로 이 계산에서 바뀌지 않습니다.",
+    },
+    heads: {
+      title: "AI 3종은 어디를 보고 있나",
+      row: "{label} · {regime} · {side} 레그",
+      dissentMark: "갈림",
+      agree: "{n}개 중 {k}개가 {side} 레그를 가리킵니다.",
+      tied: "{n}개 헤드가 정확히 반반으로 갈립니다.",
+      note:
+        "기본 판정은 AI가 아닌, 사전 등록된 8개 추세 규칙의 다수결입니다. 여기 표시는 각 헤드의 판정 자체일 뿐, 적중률과 연결되지 않습니다.",
+    },
+    run: {
+      title: "이 판정은 얼마나 오래됐나",
+      side: "{side} 레그 판정이 {n}거래일째입니다 ({since}부터).",
+      sideTruncated: "{side} 레그 판정이 최소 {n}거래일째입니다 (표시 구간 시작까지).",
+      regime: "{regime} 칸 판정은 {n}거래일째입니다 ({since}부터).",
+      regimeTruncated: "{regime} 칸 판정은 최소 {n}거래일째입니다 (표시 구간 시작까지).",
+      note1:
+        "이 계산은 오늘의 규칙을 과거 가격에 다시 적용한 재계산이며, 그날 화면에 실제로 무엇이 떠 있었는지의 기록은 아닙니다.",
+      note2:
+        "방향 판정은 8개 규칙만으로 결정됩니다. 칸 구분은 전환 시계의 삼분위에서 나오고, 그 삼분위는 전체 기간에서 잡혔습니다.",
+    },
+    cross: {
+      title: "다른 시장은",
+      row: "{market}: {regime} · 추세 신호 {split} {side} 정렬",
+      note: "두 시장은 각자의 데이터로 따로 판정됩니다. 한쪽이 다른 쪽의 근거가 되지 않습니다.",
+    },
+    archive: {
+      title: "그날 우리가 띄운 것",
+      row: "{date} — {cells}",
+      cell: "{market} {regime} ({split})",
+      cellPlain: "{market} {regime}",
+      notScored:
+        "채점하지 않은 기록입니다 — 맞았는지 틀렸는지는 표시하지 않습니다. 채점 규칙은 결과를 보기 전에 따로 못박아 두었습니다.",
+      range: "기록 시작 {first} · 현재 {n}일치",
+      empty: "아직 표시할 기록이 없습니다.",
+    },
+  },
 };

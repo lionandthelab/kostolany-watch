@@ -46,6 +46,13 @@ export type SeoOptions = {
    * article — a scheduled post before its date, or a typo. Those serve the SPA
    * shell with 200 (the catch-all rewrite in firebase.json means Hosting cannot
    * 404 them), so without this they read as duplicates of /guide/.
+   *
+   * This runs after React mounts, which is too late for a crawler that does not
+   * execute JS: it fetched HTML whose head still said `index,follow`. For the
+   * slugs we can enumerate — scheduled articles, which live articles link
+   * forward to — scripts/prerender-routes.mjs writes a static `noindex` shell
+   * so the directive is in the bytes. This stays as the catch-all for slugs
+   * that cannot be enumerated (typos, dead inbound links).
    */
   noindex?: boolean;
 };

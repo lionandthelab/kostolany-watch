@@ -84,6 +84,33 @@ class MomoFloorHead:
         """Per-bar count of the 8 rules voting UP (0..8)."""
         return self.rule_votes(prices).sum(axis=1).rename("votes_up")
 
+    def rule_flip_levels(self, prices: pd.Series) -> pd.Series:
+        """Close value at the LAST bar that puts each rule exactly on its boundary.
+
+        Same-bar counterfactual: substitute ``c`` for the final close and keep
+        every other bar fixed. ``close > MA_w`` uses a window that CONTAINS c, so
+        ``c > (S + c)/w  <=>  c > S/(w-1)`` — the mean of the w-1 prior closes.
+        ``ret_h > 0`` is ``c > px[t-h]``. Exact arithmetic, zero fitted params;
+        this is an identity with `rule_votes`, not an approximation of it.
+
+        Deliberately NOT the next-bar version: rolling forward drops the oldest
+        bar, which breaks the guarantee that an up-voting rule's boundary sits
+        BELOW today's close (counterexamples exist), and a next-bar number reads
+        as a price target.
+
+        Returns an EMPTY Series when the history is too short for every window
+        to be full — ``min_periods`` would then make the served vote come from a
+        shorter mean than the closed form assumes, and the caller must ship no
+        flip block rather than a distance to the wrong boundary.
+        """
+        px = prices.dropna().astype(float).sort_index()
+        if len(px) <= max(MA_WINDOWS) or len(px) <= max(RET_HORIZONS):
+            return pd.Series(dtype=float)
+        values = px.to_numpy(dtype=float)
+        levels = {f"ma{w}": float(values[-w:-1].mean()) for w in MA_WINDOWS}
+        levels.update({f"ret{h}": float(values[-1 - h]) for h in RET_HORIZONS})
+        return pd.Series(levels, dtype=float).reindex(list(RULE_IDS))
+
     def _side_up(self, prices: pd.Series) -> pd.Series:
         # Tie (4-4) resolves UP by pre-registered rule; disclosed in the UI.
         return self.vote_counts(prices) >= (len(MA_WINDOWS) + len(RET_HORIZONS)) / 2.0

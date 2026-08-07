@@ -35,9 +35,22 @@ export default function Landing({ onEnter, onMacro, onGuide }: Props) {
               </button>
             )}
             {onGuide && (
-              <button type="button" className="btn-ghost" onClick={onGuide}>
+              /* An <a href>, not a button, on purpose: the landing is the most
+                 linked page on the site and the guide hub had no inbound link a
+                 crawler could follow — a button is not one. preventDefault keeps
+                 SPA navigation, and modified clicks fall through to the browser
+                 so "open in new tab" still works. */
+              <a
+                className="btn-ghost"
+                href="/guide/"
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  e.preventDefault();
+                  onGuide();
+                }}
+              >
                 {t.nav.guide}
-              </button>
+              </a>
             )}
           </div>
         </div>

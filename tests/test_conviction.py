@@ -64,6 +64,228 @@ def test_vote_block_side_matches_served_regime_both_paths():
         assert bundle[kind].snapshot().vote is None
 
 
+#: The flip block's key whitelist IS the defence against a price level leaking
+#: into the payload and being read as a support line — assert it, do not trust it.
+FLIP_KEYS = {"basis", "rules", "steps", "side_flip"}
+FLIP_RULE_KEYS = {"id", "vote", "move_pct"}
+FLIP_STEP_KEYS = {"split", "tier", "move_pct"}
+FLIP_SIDE_KEYS = {"from", "to", "regime_to", "move_pct"}
+RUN_KEYS = {
+    "side", "side_bars", "side_since", "side_truncated",
+    "regime", "regime_bars", "regime_since", "regime_truncated", "grid_bars",
+}
+
+
+def _assert_flip_contract(flip, regime):
+    assert set(flip) == FLIP_KEYS
+    assert flip["basis"] == "same_bar_close"
+    assert [r["id"] for r in flip["rules"]] != []
+    assert {r["id"] for r in flip["rules"]} == set(RULE_IDS)
+
+    dists = []
+    for rule in flip["rules"]:
+        assert set(rule) == FLIP_RULE_KEYS
+        assert rule["vote"] in {"up", "down"}
+        # A price would be on the order of the index level; a move is a ratio.
+        assert abs(rule["move_pct"]) < 1.0
+        dists.append(abs(rule["move_pct"]))
+    assert dists == sorted(dists)
+
+    called_up = regime.startswith("A")
+    for rule in flip["rules"]:
+        # Called-side rules must sit on the near side of today's close, which is
+        # what makes "how much lower/higher" always well defined.
+        if (rule["vote"] == "up") == called_up:
+            assert (rule["move_pct"] < 0) is called_up
+
+    # unanimous -> strong -> lean -> mixed is the whole descent, and the ladder
+    # stops at the side flip so the grade can never climb back on the far side.
+    assert len(flip["steps"]) <= 3
+    order = ["unanimous", "strong", "lean", "mixed"]
+    ranks = [order.index(s["tier"]) for s in flip["steps"]]
+    assert ranks == sorted(set(ranks))
+    for step in flip["steps"]:
+        assert set(step) == FLIP_STEP_KEYS
+        assert abs(step["move_pct"]) <= abs(flip["side_flip"]["move_pct"])
+
+    side_flip = flip["side_flip"]
+    assert side_flip is not None
+    assert set(side_flip) == FLIP_SIDE_KEYS
+    assert side_flip["from"] == ("up" if called_up else "down")
+    assert side_flip["to"] != side_flip["from"]
+    # Side inverts, sector number does not — pit_state never reads today's bar.
+    assert side_flip["regime_to"][0] == ("B" if called_up else "A")
+    assert side_flip["regime_to"][1] == regime[1]
+    assert (side_flip["move_pct"] < 0) is called_up
+
+
+def _assert_run_contract(run, regime):
+    assert set(run) == RUN_KEYS
+    assert run["side"] == ("up" if regime.startswith("A") else "down")
+    assert run["regime"] == regime
+    assert 1 <= run["regime_bars"] <= run["side_bars"] <= run["grid_bars"]
+    assert run["side_truncated"] is (run["side_bars"] == run["grid_bars"])
+    assert run["regime_truncated"] is (run["regime_bars"] == run["grid_bars"])
+    assert run["side_since"] <= run["regime_since"]
+
+
+def test_flip_and_run_ship_on_both_momo_paths_and_never_on_ai_heads():
+    from kostolany.engine import KostolanyEngine, fit_analyst_bundle
+
+    eng = KostolanyEngine(model_kind="momo")
+    eng.fit_synthetic(n=900, seed=3)
+    single = eng.snapshot()
+
+    bundle = fit_analyst_bundle("SYNTH")
+    bundled = bundle["momo"].snapshot()
+
+    for snap in (single, bundled):
+        assert snap.flip is not None
+        assert snap.run is not None
+        _assert_flip_contract(snap.flip, snap.regime)
+        _assert_run_contract(snap.run, snap.regime)
+
+    # A fitted head's regime run is a restatement of the fit, not a rule product.
+    for kind in ("hmm", "gbm", "tsfm"):
+        ai = bundle[kind].snapshot()
+        assert ai.flip is None and ai.run is None
+
+
+def test_flip_is_dropped_when_the_closed_form_contradicts_the_served_vote(monkeypatch):
+    """Fail-closed: a distance to the wrong boundary is worse than no distance."""
+    from kostolany.engine import KostolanyEngine
+
+    eng = KostolanyEngine(model_kind="momo")
+    eng.fit_synthetic(n=900, seed=3)
+    assert eng.snapshot().flip is not None
+
+    real = eng.model.rule_flip_levels
+
+    def _mirrored(prices):
+        levels = real(prices).copy()
+        close = float(prices.iloc[-1])
+        # Reflect one boundary across today's close: whatever that rule voted,
+        # the closed form now implies the opposite.
+        levels.iloc[0] = 2.0 * close - float(levels.iloc[0]) + 1e-9 * close
+        return levels
+
+    monkeypatch.setattr(eng.model, "rule_flip_levels", _mirrored)
+    poisoned = eng.snapshot()
+    assert poisoned.flip is None
+    # And only the flip block goes — the vote badge is independent.
+    assert poisoned.vote is not None
+    assert poisoned.run is not None
+
+
+def test_flip_carries_no_absolute_price_anywhere_in_the_payload():
+    from kostolany.engine import KostolanyEngine
+
+    eng = KostolanyEngine(model_kind="momo")
+    eng.fit_synthetic(n=900, seed=3)
+    snap = eng.snapshot()
+
+    numbers = [
+        v
+        for block in (snap.flip["rules"], snap.flip["steps"], [snap.flip["side_flip"]])
+        for row in block
+        for v in row.values()
+        if isinstance(v, (int, float)) and not isinstance(v, bool)
+    ]
+    assert numbers
+    assert all(abs(v) < 1.0 for v in numbers), numbers
+
+
+def test_short_history_ships_no_flip_but_still_ships_the_vote():
+    """Under a full 200-bar window the closed form does not describe the served rule.
+
+    The guard is on the CLOSE series the rules read, not on the feature grid —
+    a 260-bar market with 171 feature rows still has full windows.
+    """
+    from kostolany.momo import MA_WINDOWS
+    from kostolany.engine import KostolanyEngine
+
+    eng = KostolanyEngine(model_kind="momo")
+    eng.fit_synthetic(n=max(MA_WINDOWS) - 10, seed=5)
+    snap = eng.snapshot()
+    assert snap.flip is None
+    assert snap.vote is not None
+    assert snap.run is not None  # a run-length needs no full window
+
+
+def test_head_dissent_side_is_read_off_the_regime_letter_only():
+    from kostolany.api import _head_dissent
+
+    dissent = _head_dissent(
+        [
+            {"id": "momo", "snapshot": {"regime": "B2"}},
+            {"id": "hmm", "snapshot": {"regime": "B1"}},
+            {"id": "gbm", "snapshot": {"regime": "A3"}},
+            {"id": "tsfm", "snapshot": {"regime": "B2"}},
+        ]
+    )
+    assert dissent["n_heads"] == 4
+    assert [c["id"] for c in dissent["calls"]] == ["momo", "hmm", "gbm", "tsfm"]
+    for call in dissent["calls"]:
+        assert call["side"] == ("up" if call["regime"][0] == "A" else "down")
+    assert dissent["side"] == {
+        "majority": "down",
+        "n_agree": 3,
+        "unanimous": False,
+        "dissenters": ["gbm"],
+    }
+    assert dissent["regime"] == {"majority": "B2", "n_agree": 2, "unanimous": False}
+
+
+def test_head_dissent_reports_a_tie_as_no_majority():
+    from kostolany.api import _head_dissent
+
+    dissent = _head_dissent(
+        [
+            {"id": "momo", "snapshot": {"regime": "A2"}},
+            {"id": "hmm", "snapshot": {"regime": "A1"}},
+            {"id": "gbm", "snapshot": {"regime": "B3"}},
+            {"id": "tsfm", "snapshot": {"regime": "B2"}},
+        ]
+    )
+    assert dissent["side"]["majority"] is None
+    assert dissent["side"]["unanimous"] is False
+    assert dissent["side"]["dissenters"] == []
+    assert dissent["side"]["n_agree"] == 2
+    assert dissent["regime"]["majority"] is None
+
+
+def test_head_dissent_is_absent_below_two_readable_calls():
+    from kostolany.api import _head_dissent
+
+    assert _head_dissent([]) is None
+    assert _head_dissent([{"id": "momo", "snapshot": {"regime": "B2"}}]) is None
+    # An unreadable head is dropped, never guessed at.
+    assert (
+        _head_dissent(
+            [
+                {"id": "momo", "snapshot": {"regime": "B2"}},
+                {"id": "hmm", "snapshot": {}},
+                {"id": "gbm", "snapshot": {"regime": None}},
+            ]
+        )
+        is None
+    )
+
+
+def test_head_dissent_is_unanimous_only_when_every_head_agrees():
+    from kostolany.api import _head_dissent
+
+    dissent = _head_dissent(
+        [
+            {"id": "momo", "snapshot": {"regime": "B2"}},
+            {"id": "hmm", "snapshot": {"regime": "B2"}},
+        ]
+    )
+    assert dissent["side"]["unanimous"] is True
+    assert dissent["regime"]["unanimous"] is True
+    assert dissent["side"]["dissenters"] == []
+
+
 def test_confidence_view_cells_match_artifact_when_present():
     art = ROOT / "artifacts" / "experiments" / "confidence_menu_20260730.json"
     if not art.exists():

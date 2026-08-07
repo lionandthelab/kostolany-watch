@@ -316,4 +316,81 @@ export const en: Messages = {
     aiRefNote:
       "The default call is a majority vote of 8 pre-registered trend rules, not an AI. The AI views (HMM·GBM·TSFM) are for reference.",
   },
+  judgment: {
+    title: "More grounds for this call",
+    summary: {
+      heads: "{k} of {n} heads read {side}",
+      rules: "{k} of 8 rules point the other way",
+      run: "{side} call standing {n} trading days",
+      runTruncated: "{side} call standing at least {n} trading days",
+    },
+    doubt: {
+      title: "Reasons to doubt this call",
+      rules: "{k} of the 8 rules sit on the other side: {list}",
+      rulesNone: "None of the 8 rules sit on the other side.",
+      heads: "{k} of {n} heads name a different regime: {list}",
+      headsNone: "All {n} heads point at the same leg.",
+      flip: "Had today's close been {d} {dir}, this call would have been {regimeTo}.",
+      dirDown: "lower",
+      dirUp: "higher",
+      none:
+        "Nothing points the other way right now. An absence of dissent does not mean the call was right — there were unanimous days whose direction was wrong, and the measured tier table above carries that fact unchanged.",
+      note:
+        "This list is not tied to hit rates — it only shows where the current call is fragile.",
+    },
+    flip: {
+      title: "Where this call flips",
+      lead: "Had today's close been …",
+      rule: "{d} {dir} “{ruleLabel}” would have gone {side} (alignment {split})",
+      ruleNoSplit: "{d} {dir} “{ruleLabel}” would have gone {side}",
+      tier: "{d} {dir} the alignment tier would have read “{tierName}”",
+      tierMixed: "mixed",
+      side:
+        "{d} {dir} the 8-rule majority direction itself would have changed, making the call {regimeTo}",
+      dirDown: "lower →",
+      dirUp: "higher →",
+      note1:
+        "These values are arithmetic out of the rule definitions. They only show how the same rules would have split with a different close substituted for today's — not a price forecast and not a trading line.",
+      note2:
+        "The turn clock (early / middle / late) does not read today's close, so it does not move in this calculation.",
+    },
+    heads: {
+      title: "Where the AI heads are looking",
+      row: "{label} · {regime} · {side} leg",
+      dissentMark: "split",
+      agree: "{k} of {n} point at the {side} leg.",
+      tied: "The {n} heads split exactly evenly.",
+      note:
+        "The default call is a majority vote of 8 pre-registered trend rules, not an AI. What is shown here is each head's own call and nothing more — it is not tied to hit rates.",
+    },
+    run: {
+      title: "How old is this call",
+      side: "The {side} leg call has stood for {n} trading days (since {since}).",
+      sideTruncated:
+        "The {side} leg call has stood for at least {n} trading days (back to the start of the shown window).",
+      regime: "The {regime} sector call has stood for {n} trading days (since {since}).",
+      regimeTruncated:
+        "The {regime} sector call has stood for at least {n} trading days (back to the start of the shown window).",
+      note1:
+        "This is today's rules re-applied to past prices — a recomputation, not a record of what was actually on screen on those days.",
+      note2:
+        "Direction is settled by the 8 rules alone. The sector split comes from turn-clock terciles, and those terciles were cut over the whole period.",
+    },
+    cross: {
+      title: "The other market",
+      row: "{market}: {regime} · trend signals {split} aligned {side}",
+      note:
+        "The two markets are called separately, each from its own data. Neither one is evidence for the other.",
+    },
+    archive: {
+      title: "What we showed that day",
+      row: "{date} — {cells}",
+      cell: "{market} {regime} ({split})",
+      cellPlain: "{market} {regime}",
+      notScored:
+        "An unscored record — whether it was right or wrong is not shown. The scoring rules were pinned down separately, before any result was seen.",
+      range: "Record starts {first} · {n} days so far",
+      empty: "No records to show yet.",
+    },
+  },
 };

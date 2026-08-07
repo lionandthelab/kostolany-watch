@@ -1,0 +1,78 @@
+# Watchdog: does the live API still believe its own data is fresh?
+#
+# GET /api/health/freshness is the API's self-report — top-level `ok` plus a
+# `breaches` list. Nothing else polls it, so without this workflow a stale feed
+# sits there until a human happens to open the site and notice a date.
+#
+# Cadence — every 3h, deliberately HALF the 6h breach threshold. What the
+# endpoint actually gates on is watch (WATCH_TTL_HOURS = 6.0) and news
+# (NEWS_TTL_HOURS = 2.0 plus one 4h refresh cycle of grace = 6.0); macro is
+# reported but never breaches, and flows/gauge caches are not read at all. Both
+# gated thresholds land on 6h, so a breach begins the moment data crosses 6h old.
+# Sampling *at* the TTL period would be the worst possible phase: a breach that
+# starts just after a poll hides for a full extra window, i.e. the data is up to
+# 12h old before anyone is told. Halving the period bounds that at ~9h and buys
+# one dropped run of slack — Actions schedules are best-effort and are quietly
+# skipped when the hosted fleet is busy, which is exactly the failure mode that
+# took out the 2026-08-06 publish.
+#
+# This workflow FAILS on a breach on purpose. A green-but-warning run is a run
+# nobody reads.
+name: Freshness watch
+
+on:
+  schedule:
+    # :20 rather than :00 — GitHub delays scheduled runs that pile onto the hour.
+    - cron: "20 */3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: freshness-watch
+  # A probe is worthless once a newer probe exists, so unlike daily-publish
+  # there is nothing to preserve by queueing.
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # No setup-python on purpose. ubuntu-latest ships python3, the checker is
+      # stdlib-only, and every extra action is another download that can flake —
+      # a watchdog that cries wolf about its own toolchain is worse than none.
+      - name: Probe /api/health/freshness
+        run: |
+          python3 .github/scripts/check_freshness.py \
+            --url "https://kostolany-watch.web.app/api/health/freshness" \
+            --attempts 5 \
+            --timeout 45 \
+            --retry-delay 10
+
+  # Same reasoning as daily-publish: the scheduled-failure email is too easy to
+  # miss. Manual runs are skipped — a human who pressed the button is watching.
+  notify:
+    needs: check
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    permissions:
+      issues: write
+    uses: ./.github/workflows/notify-failure.yml
+    with:
+      title: "Freshness watch is failing"
+      body: |
+        The scheduled freshness probe against the live API did not come back clean.
+
+        Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+        The run log has a single `FRESHNESS: <STATUS> — ...` banner line saying which of
+        these it is. They are not the same incident:
+
+        | status | meaning | action |
+        | --- | --- | --- |
+        | `STALE` | endpoint returned `ok=false` | real breach — the listed `breaches` are in the log |
+        | `NOT_DEPLOYED` | 404 on every attempt | `/api/health/freshness` has not shipped yet |
+        | `UNREACHABLE` | transport error / 5xx / unexpected status | API or Hosting rewrite is down |
+        | `BAD_RESPONSE` | 200 but no top-level `ok` | the endpoint's contract changed |
+
+        Close this issue once the probe is green again; it reopens itself if it recurs.

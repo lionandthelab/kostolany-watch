@@ -616,6 +616,39 @@ def _schedule_news_rebuild(per_theme: int = 6) -> bool:
     return True
 
 
+def kick_news_refresh(per_theme: int = 6) -> bool:
+    """Start a background rebuild and return immediately. True if this call started it.
+
+    `fetch_news_desk(refresh=True)` computes *synchronously* when the cache is
+    cold, which a cron caller cannot afford inside its attempt deadline.
+    """
+    return _schedule_news_rebuild(per_theme=per_theme)
+
+
+def news_cache_status() -> dict[str, Any]:
+    """Cache age only — no network, no rebuild. For the freshness watchdog.
+
+    Deliberately not routed through `_read_news_cache`: that re-renders both
+    priority summaries and backfills every section on each call, and a watchdog
+    polls far more often than a reader opens the desk.
+    """
+    path = _cache_path()
+    if not path.exists():
+        return {
+            "present": False,
+            "cache_age_hours": None,
+            "stale": True,
+            "ttl_hours": NEWS_TTL_HOURS,
+        }
+    age_h = (time.time() - path.stat().st_mtime) / 3600.0
+    return {
+        "present": True,
+        "cache_age_hours": round(age_h, 3),
+        "stale": age_h > NEWS_TTL_HOURS,
+        "ttl_hours": NEWS_TTL_HOURS,
+    }
+
+
 def fetch_news_desk(*, use_cache: bool = True, refresh: bool = False, per_theme: int = 6) -> dict[str, Any]:
     cached = _read_news_cache() if use_cache or refresh else None
 
