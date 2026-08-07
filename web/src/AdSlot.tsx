@@ -52,7 +52,7 @@ let scriptLoading = false;
 function ensureAdSenseScript() {
   if (!ADSENSE_LIVE || typeof document === "undefined") return;
   if (
-    document.querySelector("script[data-adsense]") ||
+    document.querySelector("script[data-adsense-loader]") ||
     document.querySelector('script[src*="pagead2.googlesyndication.com"]')
   ) {
     return;
@@ -63,7 +63,10 @@ function ensureAdSenseScript() {
   s.async = true;
   s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${CLIENT}`;
   s.crossOrigin = "anonymous";
-  s.dataset.adsense = "1";
+  // Marker for the duplicate-injection check below. NOT `data-adsense`: the
+  // loader inspects its own script tag's dataset and logs "AdSense head tag
+  // doesn't support data-adsense attribute" when it sees that name.
+  s.dataset.adsenseLoader = "1";
   document.head.appendChild(s);
 }
 
@@ -99,15 +102,31 @@ export default function AdSlot({ slot, className = "" }: Props) {
     if (!host) return;
 
     const check = () => {
+      // An iframe is not evidence of an ad. AdSense inserts one either way and
+      // then writes the outcome to `data-ad-status`; on an unfilled response it
+      // is a 100px-tall empty frame, which the height test alone reads as a fill
+      // and expands into a blank gap. Measured on the live site 2026-08-07:
+      // status="done", ad-status="unfilled", iframe 448x100.
+      const ins = host.querySelector("ins.adsbygoogle");
+      if (ins?.getAttribute("data-ad-status") === "unfilled") {
+        setFilled(false);
+        return;
+      }
       const iframe = host.querySelector("iframe");
       if (!iframe) return;
-      const h = iframe.getBoundingClientRect().height;
-      if (h >= 24) setFilled(true);
+      if (iframe.getBoundingClientRect().height >= 24) setFilled(true);
     };
 
     check();
     const obs = new MutationObserver(check);
-    obs.observe(host, { childList: true, subtree: true });
+    // `data-ad-status` arrives as an attribute write, not a child insertion, so
+    // childList alone would leave the collapse waiting on the 500ms poll.
+    obs.observe(host, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-ad-status"],
+    });
     const poll = window.setInterval(check, 500);
     const stop = window.setTimeout(() => window.clearInterval(poll), 10000);
     return () => {

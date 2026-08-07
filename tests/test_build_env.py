@@ -99,3 +99,23 @@ def test_index_html_and_env_agree_on_the_public_ids() -> None:
     assert env["VITE_GA_MEASUREMENT_ID"] in html, (
         "the GA id in .env.production is not the one index.html's gtag tag loads"
     )
+
+
+def test_ads_txt_is_a_real_file_not_the_spa_fallback() -> None:
+    """firebase.json rewrites `**` to index.html, so a missing file 200s as HTML.
+
+    Google fetching /ads.txt then receives a web page and records the publisher
+    as unverified. Checked on 2026-08-07: the path answered 200 with `<!doctype
+    html>`. Static files win over rewrites in Hosting, so the fix is simply that
+    the file exists in web/public.
+    """
+    ads = WEB / "public" / "ads.txt"
+    assert ads.exists(), "web/public/ads.txt is missing — /ads.txt serves the SPA shell"
+    text = ads.read_text(encoding="utf-8").strip()
+    assert not text.lower().startswith("<!doctype"), "ads.txt contains HTML"
+
+    env = _parse_env(ENV_PRODUCTION)
+    pub = env["VITE_ADSENSE_CLIENT"].replace("ca-", "")  # ca-pub-x -> pub-x
+    line = next((ln for ln in text.splitlines() if ln.strip().startswith("google.com")), "")
+    assert pub in line, f"ads.txt does not declare {pub}"
+    assert "DIRECT" in line.upper()
