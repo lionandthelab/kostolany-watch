@@ -1,0 +1,96 @@
+{
+  "prereg_doc": "docs/DESK_JUDGMENT_PREREG_2026-08-07.md",
+  "experiment": "P-FLIP-1",
+  "free_params": {
+    "J4": "tercile",
+    "J5": 0.1,
+    "J6": 40
+  },
+  "protocol": {
+    "cv": {
+      "n_splits": 8,
+      "min_train_size": 1260,
+      "purge_horizon": 5,
+      "embargo": 5,
+      "anchor": "end"
+    },
+    "n_boot": 2000,
+    "seed": 20260729,
+    "alpha": 0.05,
+    "z": 2.5758,
+    "markets": [
+      "^GSPC",
+      "BTC-USD"
+    ],
+    "label": "gold_labels(min_cycle=60), EVAL ONLY"
+  },
+  "generated_at": "2026-08-07T05:14:27.285658+00:00",
+  "disclaimer": "교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.",
+  "cells": {
+    "^GSPC|near": {
+      "n_bars": 588,
+      "n_legs": 29,
+      "point": 0.07917383820998279
+    },
+    "^GSPC|mid": {
+      "n_bars": 602,
+      "n_legs": 30,
+      "point": 0.13333333333333333
+    },
+    "^GSPC|far": {
+      "n_bars": 1075,
+      "n_legs": 29,
+      "point": 0.14618249534450653
+    },
+    "BTC-USD|near": {
+      "n_bars": 973,
+      "n_legs": 33,
+      "point": 0.16926272066458983
+    },
+    "BTC-USD|mid": {
+      "n_bars": 845,
+      "n_legs": 33,
+      "point": 0.1289940828402367
+    },
+    "BTC-USD|far": {
+      "n_bars": 542,
+      "n_legs": 27,
+      "point": 0.08856088560885608
+    }
+  },
+  "n_transitions": 730,
+  "delta_pooled": {
+    "point": 0.004876401274435037,
+    "sd": 0.032063273829195944,
+    "ci95": [
+      -0.07771217945480788,
+      0.08746498200367794
+    ],
+    "ci_halfwidth": 0.08258858072924291,
+    "excludes_zero": false,
+    "n_boot_valid": 2000
+  },
+  "canary": {
+    "shuffled_delta": {
+      "point": 0.0004938730869785154,
+      "sd": 0.01275012640282595,
+      "ci95": [
+        -0.03234790250142057,
+        0.0333356486753776
+      ],
+      "ci_halfwidth": 0.03284177558839908,
+      "excludes_zero": false,
+      "n_boot_valid": 2000
+    },
+    "passed": false
+  },
+  "gates": {
+    "adopt_threshold_J5": 0.1,
+    "min_events_J6": 40
+  },
+  "kills_fired": [
+    "K-FLIP-2:shuffle_canary_indistinguishable"
+  ],
+  "verdict": "rejected",
+  "display_allowed": false
+}

@@ -1,0 +1,114 @@
+{
+  "prereg_doc": "docs/DESK_JUDGMENT_PREREG_2026-08-07.md",
+  "experiment": "P-RUN-1",
+  "free_params": {
+    "J7": [
+      20,
+      60
+    ],
+    "J8": 0.05,
+    "J9": 12,
+    "J10": 0.5
+  },
+  "protocol": {
+    "cv": {
+      "n_splits": 8,
+      "min_train_size": 1260,
+      "purge_horizon": 5,
+      "embargo": 5,
+      "anchor": "end"
+    },
+    "n_boot": 2000,
+    "seed": 20260729,
+    "alpha": 0.05,
+    "z": 2.5758,
+    "markets": [
+      "^GSPC",
+      "BTC-USD"
+    ],
+    "label": "gold_labels(min_cycle=60), EVAL ONLY"
+  },
+  "generated_at": "2026-08-07T05:23:55.964043+00:00",
+  "disclaimer": "교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.",
+  "cells": {
+    "^GSPC|1-20": {
+      "n_bars": 1337,
+      "n_legs": 32,
+      "point": 0.6798803290949887
+    },
+    "^GSPC|21-60": {
+      "n_bars": 908,
+      "n_legs": 32,
+      "point": 0.763215859030837
+    },
+    "^GSPC|61+": {
+      "n_bars": 473,
+      "n_legs": 19,
+      "point": 0.7230443974630021
+    },
+    "BTC-USD|1-20": {
+      "n_bars": 1533,
+      "n_legs": 39,
+      "point": 0.700587084148728
+    },
+    "BTC-USD|21-60": {
+      "n_bars": 918,
+      "n_legs": 37,
+      "point": 0.7167755991285403
+    },
+    "BTC-USD|61+": {
+      "n_bars": 381,
+      "n_legs": 13,
+      "point": 0.7532808398950132
+    }
+  },
+  "band_means": {
+    "^GSPC": {
+      "1-20": 0.6798803290949887,
+      "21-60": 0.763215859030837,
+      "61+": 0.7230443974630021
+    },
+    "BTC-USD": {
+      "1-20": 0.700587084148728,
+      "21-60": 0.7167755991285403,
+      "61+": 0.7532808398950132
+    }
+  },
+  "delta_observed": {
+    "point": 0.1434084592306857,
+    "sd": 0.06033529867504566,
+    "ci95": [
+      -0.012003203096496912,
+      0.2988201215578683
+    ],
+    "ci_halfwidth": 0.15541166232718262,
+    "excludes_zero": false,
+    "n_boot_valid": 2000
+  },
+  "placebo": {
+    "delta": {
+      "point": 0.21836165406569397,
+      "sd": 0.0629610770688355,
+      "ci95": [
+        0.05618651175178749,
+        0.3805367963796005
+      ],
+      "ci_halfwidth": 0.16217514231390648,
+      "excludes_zero": true,
+      "n_boot_valid": 2000
+    },
+    "clean": false
+  },
+  "monotone": false,
+  "gates": {
+    "adopt_threshold_J8": 0.05,
+    "min_legs_J9": 12,
+    "max_leg_concentration_J10": 0.5
+  },
+  "kills_fired": [
+    "K-RUN-3:BTC-USD|top3_legs=0.63",
+    "K-RUN-2:placebo_separates_from_zero"
+  ],
+  "verdict": "rejected",
+  "display_allowed": false
+}

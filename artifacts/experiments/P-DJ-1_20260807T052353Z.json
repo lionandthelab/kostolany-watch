@@ -1,0 +1,132 @@
+{
+  "prereg_doc": "docs/DESK_JUDGMENT_PREREG_2026-08-07.md",
+  "experiment": "P-DJ-1",
+  "free_params": {
+    "J1": "{4} vs {1,2,3}",
+    "J2": 0.03,
+    "J3": 12
+  },
+  "protocol": {
+    "cv": {
+      "n_splits": 8,
+      "min_train_size": 1260,
+      "purge_horizon": 5,
+      "embargo": 5,
+      "anchor": "end"
+    },
+    "n_boot": 2000,
+    "seed": 20260729,
+    "alpha": 0.05,
+    "z": 2.5758,
+    "markets": [
+      "^GSPC",
+      "BTC-USD"
+    ],
+    "label": "gold_labels(min_cycle=60), EVAL ONLY"
+  },
+  "generated_at": "2026-08-07T05:23:49.244545+00:00",
+  "disclaimer": "교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.",
+  "cells": {
+    "^GSPC|agree4": {
+      "n_bars": 1278,
+      "n_legs": 36,
+      "point": 0.769170579029734
+    },
+    "^GSPC|agree_le3": {
+      "n_bars": 1440,
+      "n_legs": 36,
+      "point": 0.6673611111111111
+    },
+    "BTC-USD|agree4": {
+      "n_bars": 1278,
+      "n_legs": 39,
+      "point": 0.8247261345852895
+    },
+    "BTC-USD|agree_le3": {
+      "n_bars": 1554,
+      "n_legs": 39,
+      "point": 0.620978120978121
+    },
+    "^GSPC|n_agree=1(report_only)": {
+      "n_bars": 508,
+      "n_legs": 33,
+      "point": 0.6161417322834646
+    },
+    "^GSPC|n_agree=2(report_only)": {
+      "n_bars": 483,
+      "n_legs": 34,
+      "point": 0.6749482401656315
+    },
+    "^GSPC|n_agree=3(report_only)": {
+      "n_bars": 449,
+      "n_legs": 34,
+      "point": 0.7171492204899778
+    },
+    "^GSPC|n_agree=4(report_only)": {
+      "n_bars": 1278,
+      "n_legs": 36,
+      "point": 0.769170579029734
+    },
+    "BTC-USD|n_agree=1(report_only)": {
+      "n_bars": 474,
+      "n_legs": 38,
+      "point": 0.5358649789029536
+    },
+    "BTC-USD|n_agree=2(report_only)": {
+      "n_bars": 530,
+      "n_legs": 37,
+      "point": 0.6396226415094339
+    },
+    "BTC-USD|n_agree=3(report_only)": {
+      "n_bars": 550,
+      "n_legs": 39,
+      "point": 0.6763636363636364
+    },
+    "BTC-USD|n_agree=4(report_only)": {
+      "n_bars": 1278,
+      "n_legs": 39,
+      "point": 0.8247261345852895
+    }
+  },
+  "delta_pooled": {
+    "point": 0.15161658839121148,
+    "sd": 0.04601394009423019,
+    "ci95": [
+      0.03309388149649335,
+      0.2701392952859296
+    ],
+    "ci_halfwidth": 0.11852270689471812,
+    "excludes_zero": true,
+    "n_boot_valid": 2000
+  },
+  "delta_per_market": {
+    "^GSPC": {
+      "point": 0.10240366285261308,
+      "sd": 0.06529727754480763,
+      "ci95": [
+        -0.06578906464730243,
+        0.2705963903525286
+      ],
+      "ci_halfwidth": 0.1681927274999155,
+      "excludes_zero": false,
+      "n_boot_valid": 2000
+    },
+    "BTC-USD": {
+      "point": 0.20082951392980988,
+      "sd": 0.06480074256327892,
+      "ci95": [
+        0.03391576123531603,
+        0.36774326662430373
+      ],
+      "ci_halfwidth": 0.16691375269449385,
+      "excludes_zero": true,
+      "n_boot_valid": 2000
+    }
+  },
+  "gates": {
+    "adopt_threshold_J2": 0.03
+  },
+  "kills_fired": [],
+  "verdict": "adopted",
+  "display_allowed": true
+}

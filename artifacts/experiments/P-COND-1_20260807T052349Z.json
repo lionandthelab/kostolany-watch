@@ -1,0 +1,321 @@
+{
+  "prereg_doc": "docs/DESK_JUDGMENT_PREREG_2026-08-07.md",
+  "experiment": "P-COND-1",
+  "free_params": {
+    "J17": [
+      10,
+      20,
+      60
+    ],
+    "J18": 12,
+    "J19": 0.1,
+    "J20": 6
+  },
+  "protocol": {
+    "cv": {
+      "n_splits": 8,
+      "min_train_size": 1260,
+      "purge_horizon": 5,
+      "embargo": 5,
+      "anchor": "end"
+    },
+    "n_boot": 2000,
+    "seed": 20260729,
+    "alpha": 0.05,
+    "z": 2.5758,
+    "markets": [
+      "^GSPC",
+      "BTC-USD"
+    ],
+    "label": "gold_labels(min_cycle=60), EVAL ONLY"
+  },
+  "generated_at": "2026-08-07T05:23:29.623682+00:00",
+  "disclaimer": "교육·연구 목적의 국면 인식 보조 자료이며 투자 권유·자문이 아닙니다.",
+  "cells": {
+    "^GSPC|unanimous|h10": {
+      "n_bars": 1524,
+      "n_legs": 36,
+      "point": 0.7349081364829396,
+      "ci95": [
+        0.6273252955040692,
+        0.8349689172922673
+      ],
+      "ci_halfwidth": 0.103821810894099,
+      "permitted": false
+    },
+    "^GSPC|unanimous|h20": {
+      "n_bars": 1517,
+      "n_legs": 36,
+      "point": 0.6651285431773236,
+      "ci95": [
+        0.5777539556529074,
+        0.7472723078321195
+      ],
+      "ci_halfwidth": 0.08475917608960601,
+      "permitted": true
+    },
+    "^GSPC|unanimous|h60": {
+      "n_bars": 1497,
+      "n_legs": 35,
+      "point": 0.5470941883767535,
+      "ci95": [
+        0.4172582750152791,
+        0.6741156572490936
+      ],
+      "ci_halfwidth": 0.12842869111690727,
+      "permitted": false
+    },
+    "^GSPC|strong|h10": {
+      "n_bars": 420,
+      "n_legs": 36,
+      "point": 0.5595238095238095,
+      "ci95": [
+        0.42444832795988174,
+        0.6964256336508506
+      ],
+      "ci_halfwidth": 0.13598865284548445,
+      "permitted": false
+    },
+    "^GSPC|strong|h20": {
+      "n_bars": 420,
+      "n_legs": 36,
+      "point": 0.5166666666666667,
+      "ci95": [
+        0.3831747374350286,
+        0.6528498518306781
+      ],
+      "ci_halfwidth": 0.13483755719782473,
+      "permitted": false
+    },
+    "^GSPC|strong|h60": {
+      "n_bars": 414,
+      "n_legs": 35,
+      "point": 0.5048309178743962,
+      "ci95": [
+        0.3845212441524244,
+        0.6241741875904931
+      ],
+      "ci_halfwidth": 0.11982647171903436,
+      "permitted": false
+    },
+    "^GSPC|lean|h10": {
+      "n_bars": 253,
+      "n_legs": 36,
+      "point": 0.5533596837944664,
+      "ci95": [
+        0.4181004887814137,
+        0.6873645985763412
+      ],
+      "ci_halfwidth": 0.13463205489746377,
+      "permitted": false
+    },
+    "^GSPC|lean|h20": {
+      "n_bars": 253,
+      "n_legs": 36,
+      "point": 0.5217391304347826,
+      "ci95": [
+        0.3760937611900129,
+        0.6674483585833443
+      ],
+      "ci_halfwidth": 0.14567729869666568,
+      "permitted": false
+    },
+    "^GSPC|lean|h60": {
+      "n_bars": 247,
+      "n_legs": 35,
+      "point": 0.5465587044534413,
+      "ci95": [
+        0.422212120807272,
+        0.6737180115494861
+      ],
+      "ci_halfwidth": 0.12575294537110704,
+      "permitted": false
+    },
+    "^GSPC|mixed|h10": {
+      "n_bars": 511,
+      "n_legs": 35,
+      "point": 0.547945205479452,
+      "ci95": [
+        0.4573690677005388,
+        0.6356909983403933
+      ],
+      "ci_halfwidth": 0.08916096531992727,
+      "permitted": true
+    },
+    "^GSPC|mixed|h20": {
+      "n_bars": 508,
+      "n_legs": 35,
+      "point": 0.5334645669291339,
+      "ci95": [
+        0.4178320421344054,
+        0.6463717467325053
+      ],
+      "ci_halfwidth": 0.11426985229904997,
+      "permitted": false
+    },
+    "^GSPC|mixed|h60": {
+      "n_bars": 500,
+      "n_legs": 34,
+      "point": 0.608,
+      "ci95": [
+        0.5236872859690829,
+        0.6906808007100387
+      ],
+      "ci_halfwidth": 0.08349675737047785,
+      "permitted": true
+    },
+    "BTC-USD|unanimous|h10": {
+      "n_bars": 1220,
+      "n_legs": 39,
+      "point": 0.6786885245901639,
+      "ci95": [
+        0.5488531924115763,
+        0.79842265887842
+      ],
+      "ci_halfwidth": 0.12478473323342185,
+      "permitted": false
+    },
+    "BTC-USD|unanimous|h20": {
+      "n_bars": 1220,
+      "n_legs": 39,
+      "point": 0.5860655737704918,
+      "ci95": [
+        0.4351696727690284,
+        0.7248359657751837
+      ],
+      "ci_halfwidth": 0.14483314650307763,
+      "permitted": false
+    },
+    "BTC-USD|unanimous|h60": {
+      "n_bars": 1203,
+      "n_legs": 39,
+      "point": 0.45303408146300916,
+      "ci95": [
+        0.30708258071384475,
+        0.5905467395332069
+      ],
+      "ci_halfwidth": 0.14173207940968108,
+      "permitted": false
+    },
+    "BTC-USD|strong|h10": {
+      "n_bars": 550,
+      "n_legs": 39,
+      "point": 0.5745454545454546,
+      "ci95": [
+        0.44388925905237087,
+        0.7056795279194754
+      ],
+      "ci_halfwidth": 0.1308951344335523,
+      "permitted": false
+    },
+    "BTC-USD|strong|h20": {
+      "n_bars": 550,
+      "n_legs": 39,
+      "point": 0.49636363636363634,
+      "ci95": [
+        0.3752233167776632,
+        0.6185028677527715
+      ],
+      "ci_halfwidth": 0.12163977548755416,
+      "permitted": false
+    },
+    "BTC-USD|strong|h60": {
+      "n_bars": 542,
+      "n_legs": 39,
+      "point": 0.42435424354243545,
+      "ci95": [
+        0.2829914110128601,
+        0.5644705488634008
+      ],
+      "ci_halfwidth": 0.14073956892527031,
+      "permitted": false
+    },
+    "BTC-USD|lean|h10": {
+      "n_bars": 391,
+      "n_legs": 39,
+      "point": 0.5882352941176471,
+      "ci95": [
+        0.4569473320279993,
+        0.7162116581569469
+      ],
+      "ci_halfwidth": 0.12963216306447375,
+      "permitted": false
+    },
+    "BTC-USD|lean|h20": {
+      "n_bars": 389,
+      "n_legs": 39,
+      "point": 0.5218508997429306,
+      "ci95": [
+        0.40541843881647255,
+        0.6369226469023526
+      ],
+      "ci_halfwidth": 0.11575210404294001,
+      "permitted": false
+    },
+    "BTC-USD|lean|h60": {
+      "n_bars": 383,
+      "n_legs": 39,
+      "point": 0.556135770234987,
+      "ci95": [
+        0.4450147422626959,
+        0.6679697475395833
+      ],
+      "ci_halfwidth": 0.11147750263844372,
+      "permitted": false
+    },
+    "BTC-USD|mixed|h10": {
+      "n_bars": 661,
+      "n_legs": 38,
+      "point": 0.6021180030257186,
+      "ci95": [
+        0.5253912311023616,
+        0.6765879359789986
+      ],
+      "ci_halfwidth": 0.07559835243831851,
+      "permitted": true
+    },
+    "BTC-USD|mixed|h20": {
+      "n_bars": 653,
+      "n_legs": 38,
+      "point": 0.5099540581929556,
+      "ci95": [
+        0.4258312373397518,
+        0.5921141051383866
+      ],
+      "ci_halfwidth": 0.08314143389931739,
+      "permitted": true
+    },
+    "BTC-USD|mixed|h60": {
+      "n_bars": 644,
+      "n_legs": 38,
+      "point": 0.5217391304347826,
+      "ci95": [
+        0.42526566051773035,
+        0.6170249891610107
+      ],
+      "ci_halfwidth": 0.09587966432164015,
+      "permitted": true
+    }
+  },
+  "n_cells_permitted": 6,
+  "n_cells_surviving_deletion": 0,
+  "dead_columns": [
+    10,
+    20,
+    60
+  ],
+  "gates": {
+    "min_legs_J18": 12,
+    "max_ci_halfwidth_J19": 0.1,
+    "min_permitted_cells_J20": 6
+  },
+  "kills_fired": [
+    "K-CD-1:h10",
+    "K-CD-1:h20",
+    "K-CD-1:h60",
+    "K-CD-3:only_0_cells_survive_column_deletion"
+  ],
+  "verdict": "rejected",
+  "display_allowed": false,
+  "note": "No return, price or volatility column exists in this artifact (prereg 6.1 / K-CD-2)."
+}
